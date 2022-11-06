@@ -1,0 +1,6 @@
+[submodule "extlibs/muparser"]
+	path = extlibs/muparser
+	url = https://github.com/beltoforion/muparser.git
+[submodule "extlibs/taucs"]
+	path = extlibs/taucs
+	url = git@github.com:westernmagic/taucs.git
