@@ -40,7 +40,7 @@
 #include <string.h>
 #include <stdio.h>
 
-#include <muParser/muParserDLL.h>
+#include <muParserDLL.h>
 
 #include "GMRFLib/GMRFLib.h"
 
