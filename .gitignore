@@ -799,6 +799,8 @@ rinla/vignettes/figures/*
 rinla/vignettes/*-figs/*
 rinla/vignettes/*-figures/*
 rinla/vignettes/*-img/*
+rinla/vignettes/*_files/*
+rinla/vignettes/*_cache/*
 rinla/vignettes/Old/*
 
 rinla/inst/NEWS.pdf
@@ -819,6 +821,11 @@ gmrflib/GitID.all
 rinla/inst/bin/*/*/fmesher
 rinla/inst/bin/*/*/inla
 rinla/inst/bin/*/*/inla.mkl
+
+fmesher/src/.deps/
+fmesher/src/fmesher
+fmesher/src/fmesher_test
+fmesher/src/treetest
 
 
 rinla/vignettes/multinomial_files/figure-latex/
@@ -1035,3 +1042,25 @@ r-inla.org/doc/link/powerlogit.fls
 r-inla.org/doc/link/powerlogit.synctex.gz
 
 sandbox/dynlinking/test
+
+r-inla.org/doc/likelihood/cennbinomial2.synctex.gz
+
+r-inla.org/doc/likelihood/cennbinomial2.log
+
+r-inla.org/doc/likelihood/cennbinomial2.fls
+
+r-inla.org/doc/likelihood/cennbinomial2.aux
+
+r-inla.org/doc/likelihood/cennbinomial2.fdb_latexmk
+
+r-inla.org/doc/likelihood/gaussianjw.aux
+
+r-inla.org/doc/likelihood/gaussianjw.log
+
+r-inla.org/doc/likelihood/gaussianjw.synctex.gz
+
+*.fdb_latexmk
+
+*.fls
+
+export/sparse-vec/test

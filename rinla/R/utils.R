@@ -174,49 +174,30 @@
     return(paste(strings, collapse = sep, sep = ""))
 }
 
-`inla.only.for.developers` <- function(msg = "<<<ADD MESSAGE HERE>>>", strict = FALSE) {
-    if (!(Sys.getenv("USER") %in%
-        c("hrue", "rueh", "finnkrl", "finn", "cristian", "chiuchc", "elias", "vanniej"))) {
-        if (strict) {
-            stop(paste0("This function/feature [", msg, "] is for developers only."))
-        } else {
-            warning(paste0("This function/feature [", msg, "] is for developers only."))
-        }
-    }
-    return(invisible())
-}
-
 `inla.my.update` <- function(dir, binaries = FALSE, ignore.regexp = NULL) {
     ## Set binaries=TRUE to set the inla.call and fmesher.call options
     ## To override the default binaries path, set binaries="/the/path/bin"
-
-    inla.only.for.developers(msg = "inla.my.update", strict = TRUE)
 
     a <- inla.models()
     rm(a)
         
     if (Sys.getenv("USER") %in% "hrue") {
         dir.default <- "~/p/inla/r-inla/rinla/R"
-        bin.default <- "~/bin/inla.debug"
+        bin.default <- "~/bin"
     } else if (Sys.getenv("USER") %in% "rueh") {
         dir.default <- "~/build64/r-inla/rinla/R"
         bin.default <- "~/build64/local/bin"
+    } else if (Sys.getenv("USER") %in% "zhedong") {
+        dir.default <- "~/inla_prog/build64/r-inla/rinla/R"
+        bin.default <- "~/inla_prog/build64/local/bin"
     } else if (Sys.getenv("USER") %in% "elias") {
         dir.default <- "~/inla-project/source/inla/rinla/R"
         bin.default <- "~/inla-project/compile/local/bin"
-    } else if (Sys.getenv("USER") %in% "fuglstad") {
-        dir.default <- "~/build64/rinla/R"
-        bin.default <- "~/build64/local/bin"
-    } else if (Sys.getenv("USER") %in% c("rieblera", "ariebler")) {
-        dir.default <- "~/inla/rinla/R"
-        bin.default <- "~/local/bin"
-    } else if (Sys.getenv("USER") %in% c("cristian", "chiuchc")) {
-        dir.default <- "~/Desktop/r-inla/rinla/R"
-        bin.default <- "~/local/bin"
     } else {
         dir.default <- "~/github/r-inla/rinla/R"
         bin.default <- "~/local/bin"
     }
+
     if (!missing(binaries)) {
         if (is.character(binaries)) {
             bin.default <- binaries
@@ -667,7 +648,7 @@
     result <- try(dir.create(dir, showWarnings = showWarnings, recursive = recursive, mode = mode))
     if ((inherits(result, "try-error") || !result)) {
         if (StopOnError) {
-            stop(paste("Fail to create directory [", dir, "]. Stop.", sep = ""))
+            stop(paste("Failed to create directory [", dir, "]. Stop.", sep = ""))
         }
         result <- NULL
     }
@@ -735,7 +716,12 @@
 `inla.source2function` <- function(the.source, newline = "<<NEWLINE>>") {
     ## take function source, output from inla.function2source(), and
     ## return the function, using 'newline' as newline.
-    return(inla.eval(strsplit(the.source, split = newline)[[1L]]))
+    if (the.source == "(null)") {
+        warning("'the.source' is NULL, us identity-mapping")
+        return(inla.eval("function(x) x"))
+    } else {
+        return(inla.eval(strsplit(the.source, split = newline)[[1L]]))
+    }
 }
 
 `inla.writeLines` <- function(filename, lines) {
@@ -1130,4 +1116,12 @@
         warning(paste0("One or more abs(skewness) are too high. Coerced to be ", skew.max))
     }
     return(sn.map(mean, variance, skew))
+}
+
+`inla.ensure.spd` <- function(A, tol = sqrt(.Machine$double.eps)) {
+    ## ensure A is spd,  by ensuring that eigenvalues are no smaller than
+    ## tol * max.eigenvalue
+    e <- eigen(A)
+    e$values <- pmax(e$values[1] * tol, e$values)
+    return (e$vectors %*% diag(e$values) %*% t(e$vectors))
 }

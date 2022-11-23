@@ -41,8 +41,6 @@
 #endif
 static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 
-/* Pre-hg-Id: $Id: sparse-interface.c,v 1.41 2010/02/27 08:32:02 hrue Exp $ */
-
 /*!
   \brief Compute the reordering
 */
@@ -63,19 +61,25 @@ int GMRFLib_compute_reordering(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_graph_tp * 
 
 	switch (GMRFLib_reorder) {
 	case GMRFLib_REORDER_DEFAULT:
+	{
 		/*
 		 * this choice depends on the sparse-solver 
 		 */
 		switch (sm_fact->smtp) {
 		case GMRFLib_SMTP_BAND:
+		{
 			GMRFLib_EWRAP1(GMRFLib_compute_reordering_BAND(&(sm_fact->remap), graph));
+		}
 			break;
 
 		case GMRFLib_SMTP_TAUCS:
+		{
 			GMRFLib_EWRAP1(GMRFLib_compute_reordering_TAUCS(&(sm_fact->remap), graph, GMRFLib_reorder, gn_ptr));
+		}
 			break;
 
 		case GMRFLib_SMTP_PARDISO:
+		{
 			if (sm_fact->PARDISO_fact == NULL) {
 				GMRFLib_pardiso_init(&(sm_fact->PARDISO_fact));
 			}
@@ -83,17 +87,21 @@ int GMRFLib_compute_reordering(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_graph_tp * 
 			sm_fact->remap = Calloc(graph->n, int);
 			Memcpy((void *) sm_fact->remap, (void *) sm_fact->PARDISO_fact->pstore[GMRFLib_PSTORE_TNUM_REF]->perm,
 			       graph->n * sizeof(int));
+		}
 			break;
 
 		default:
 			GMRFLib_ASSERT(1 == 0, GMRFLib_ESNH);
 			break;
 		}
+	}
 		break;
 
 	case GMRFLib_REORDER_PARDISO:
+	{
 		switch (sm_fact->smtp) {
 		case GMRFLib_SMTP_PARDISO:		       /* same code as above */
+		{
 			if (sm_fact->PARDISO_fact == NULL) {
 				GMRFLib_pardiso_init(&(sm_fact->PARDISO_fact));
 			}
@@ -101,12 +109,14 @@ int GMRFLib_compute_reordering(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_graph_tp * 
 			sm_fact->remap = Calloc(graph->n, int);
 			Memcpy((void *) sm_fact->remap, (void *) sm_fact->PARDISO_fact->pstore[GMRFLib_PSTORE_TNUM_REF]->perm,
 			       graph->n * sizeof(int));
+		}
 			break;
 
 		default:
 			GMRFLib_ASSERT(1 == 0, GMRFLib_ESNH);
 			break;
 		}
+	}
 		break;
 
 	case GMRFLib_REORDER_BAND:
@@ -126,9 +136,12 @@ int GMRFLib_compute_reordering(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_graph_tp * 
 	case GMRFLib_REORDER_AMDBARC:
 	case GMRFLib_REORDER_MD:
 	case GMRFLib_REORDER_MMD:
+	{
 		GMRFLib_EWRAP1(GMRFLib_compute_reordering_TAUCS(&(sm_fact->remap), graph, GMRFLib_reorder, gn_ptr));
+	}
 		break;
 	default:
+		P(GMRFLib_reorder);
 		GMRFLib_ASSERT(0 == 1, GMRFLib_ESNH);
 	}
 
@@ -158,35 +171,41 @@ int GMRFLib_free_reordering(GMRFLib_sm_fact_tp * sm_fact)
 /*
   \brief Build a sparse matrix
 */
-int GMRFLib_build_sparse_matrix(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, GMRFLib_graph_tp * graph)
+int GMRFLib_build_sparse_matrix(int thread_id, GMRFLib_sm_fact_tp * sm_fact, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, GMRFLib_graph_tp * graph)
 {
 	GMRFLib_ENTER_ROUTINE;
 	int ret;
 
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
-		ret = GMRFLib_build_sparse_matrix_BAND(&(sm_fact->bchol), Qfunc, Qfunc_arg, graph, sm_fact->remap, sm_fact->bandwidth);
+	{
+		ret = GMRFLib_build_sparse_matrix_BAND(thread_id, &(sm_fact->bchol), Qfunc, Qfunc_arg, graph, sm_fact->remap, sm_fact->bandwidth);
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
-		ret = GMRFLib_build_sparse_matrix_TAUCS(&(sm_fact->TAUCS_L), Qfunc, Qfunc_arg, graph, sm_fact->remap);
+	{
+		ret = GMRFLib_build_sparse_matrix_TAUCS(thread_id, &(sm_fact->TAUCS_L), Qfunc, Qfunc_arg, graph, sm_fact->remap);
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		if (sm_fact->PARDISO_fact == NULL) {
 			GMRFLib_pardiso_init(&(sm_fact->PARDISO_fact));
 			GMRFLib_pardiso_reorder(sm_fact->PARDISO_fact, graph);
 		}
-		ret = GMRFLib_pardiso_build(sm_fact->PARDISO_fact, graph, Qfunc, Qfunc_arg);
+		ret = GMRFLib_pardiso_build(thread_id, sm_fact->PARDISO_fact, graph, Qfunc, Qfunc_arg);
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	default:
@@ -208,25 +227,31 @@ int GMRFLib_factorise_sparse_matrix(GMRFLib_sm_fact_tp * sm_fact, GMRFLib_graph_
 
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		ret = GMRFLib_factorise_sparse_matrix_BAND(sm_fact->bchol, &(sm_fact->finfo), graph, sm_fact->bandwidth);
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		ret = GMRFLib_factorise_sparse_matrix_TAUCS(&(sm_fact->TAUCS_L), &(sm_fact->TAUCS_symb_fact), &(sm_fact->finfo),
 							    &(sm_fact->TAUCS_L_inv_diag));
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		ret = GMRFLib_pardiso_chol(sm_fact->PARDISO_fact);
 		if (ret != GMRFLib_SUCCESS) {
 			return ret;
 		}
+	}
 		break;
 
 	default:
@@ -247,22 +272,28 @@ int GMRFLib_free_fact_sparse_matrix(GMRFLib_sm_fact_tp * sm_fact)
 	if (sm_fact) {
 		switch (sm_fact->smtp) {
 		case GMRFLib_SMTP_BAND:
+		{
 			GMRFLib_EWRAP1(GMRFLib_free_fact_sparse_matrix_BAND(sm_fact->bchol));
 			sm_fact->bchol = NULL;
+		}
 			break;
 
 		case GMRFLib_SMTP_TAUCS:
+		{
 			GMRFLib_EWRAP1(GMRFLib_free_fact_sparse_matrix_TAUCS
 				       (sm_fact->TAUCS_L, sm_fact->TAUCS_L_inv_diag, sm_fact->TAUCS_symb_fact));
 			sm_fact->TAUCS_L = NULL;
 			sm_fact->TAUCS_symb_fact = NULL;
+		}
 			break;
 
 		case GMRFLib_SMTP_PARDISO:
+		{
 			if (sm_fact->PARDISO_fact) {
 				GMRFLib_EWRAP1(GMRFLib_pardiso_free(&(sm_fact->PARDISO_fact)));
 				sm_fact->PARDISO_fact = NULL;
 			}
+		}
 			break;
 
 		default:
@@ -283,29 +314,32 @@ int GMRFLib_solve_l_sparse_matrix(double *rhs, int nrhs, GMRFLib_sm_fact_tp * sm
 	 * rhs in real world. solve L x=rhs, rhs is overwritten by the solution 
 	 */
 	GMRFLib_ENTER_ROUTINE;
-	int id = GMRFLib_thread_id;
 
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 		for (int i = 0; i < nrhs; i++) {
-			GMRFLib_thread_id = id;
 			GMRFLib_solve_l_sparse_matrix_BAND(&rhs[i * graph->n], sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth);
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 		for (int i = 0; i < nrhs; i++) {
-			GMRFLib_thread_id = id;
 			GMRFLib_solve_l_sparse_matrix_TAUCS(&rhs[i * graph->n], sm_fact->TAUCS_L, graph, sm_fact->remap);
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		GMRFLib_pardiso_solve_L(sm_fact->PARDISO_fact, rhs, rhs, nrhs);
+	}
 		break;
 
 	default:
@@ -327,29 +361,32 @@ int GMRFLib_solve_lt_sparse_matrix(double *rhs, int nrhs, GMRFLib_sm_fact_tp * s
 	 * rhs in real world. solve L^Tx=rhs, rhs is overwritten by the solution 
 	 */
 	GMRFLib_ENTER_ROUTINE;
-	int id = GMRFLib_thread_id;
 
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 		for (int i = 0; i < nrhs; i++) {
-			GMRFLib_thread_id = id;
 			GMRFLib_solve_lt_sparse_matrix_BAND(&rhs[i * graph->n], sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth);
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 		for (int i = 0; i < nrhs; i++) {
-			GMRFLib_thread_id = id;
 			GMRFLib_solve_lt_sparse_matrix_TAUCS(&rhs[i * graph->n], sm_fact->TAUCS_L, graph, sm_fact->remap);
 		}
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		GMRFLib_pardiso_solve_LT(sm_fact->PARDISO_fact, rhs, rhs, nrhs);
+	}
 		break;
 
 	default:
@@ -371,13 +408,11 @@ int GMRFLib_solve_llt_sparse_matrix(double *rhs, int nrhs, GMRFLib_sm_fact_tp * 
 	 * rhs in real world. solve Q x=rhs, where Q=L L^T 
 	 */
 	GMRFLib_ENTER_ROUTINE;
-	int id = GMRFLib_thread_id;
 
 	if (sm_fact->smtp == GMRFLib_SMTP_BAND) {
 		omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 		for (int i = 0; i < nrhs; i++) {
-			GMRFLib_thread_id = id;
 			GMRFLib_solve_llt_sparse_matrix_BAND(&rhs[i * graph->n], sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth);
 		}
 	} else if (sm_fact->smtp == GMRFLib_SMTP_TAUCS) {
@@ -385,7 +420,6 @@ int GMRFLib_solve_llt_sparse_matrix(double *rhs, int nrhs, GMRFLib_sm_fact_tp * 
 			// omp_set_num_threads(GMRFLib_openmp->max_threads_inner);
 			// #pragma omp parallel for num_threads(GMRFLib_openmp->max_threads_inner)
 			for (int i = 0; i < nrhs; i++) {
-				GMRFLib_thread_id = id;
 				GMRFLib_solve_llt_sparse_matrix_TAUCS(&rhs[i * graph->n], sm_fact->TAUCS_L, graph, sm_fact->remap);
 			}
 		} else {
@@ -446,7 +480,6 @@ int GMRFLib_solve_llt_sparse_matrix(double *rhs, int nrhs, GMRFLib_sm_fact_tp * 
 			}
 #pragma omp parallel for num_threads(nt) if (nt > 1)
 			for (int k = 0; k < nsolve; k++) {
-				GMRFLib_thread_id = id;
 				int offset = k * graph->n * block_nrhs;
 				int local_nrhs = (k < nblock ? block_nrhs : (int) d.rem);
 				GMRFLib_solve_llt_sparse_matrix2_TAUCS(rhs + offset, sm_fact->TAUCS_L, graph, sm_fact->remap, local_nrhs);
@@ -472,12 +505,16 @@ int GMRFLib_solve_llt_sparse_matrix_special(double *rhs, GMRFLib_sm_fact_tp * sm
 
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP1(GMRFLib_solve_llt_sparse_matrix_special_BAND(rhs, sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth, idx));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP1(GMRFLib_solve_llt_sparse_matrix_special_TAUCS
 			       (rhs, sm_fact->TAUCS_L, sm_fact->TAUCS_L_inv_diag, graph, sm_fact->remap, idx));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
@@ -508,20 +545,28 @@ int GMRFLib_solve_lt_sparse_matrix_special(double *rhs, GMRFLib_sm_fact_tp * sm_
 	GMRFLib_ENTER_ROUTINE;
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP0(GMRFLib_solve_lt_sparse_matrix_special_BAND
 			       (rhs, sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth, findx, toindx, remapped));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP0(GMRFLib_solve_lt_sparse_matrix_special_TAUCS(rhs, sm_fact->TAUCS_L, graph, sm_fact->remap, findx, toindx, remapped));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		GMRFLib_pardiso_solve_LT(sm_fact->PARDISO_fact, rhs, rhs, 1);
+	}
 		break;
 
 	default:
+	{
 		GMRFLib_ERROR(GMRFLib_ESNH);
+	}
 		break;
 	}
 	GMRFLib_LEAVE_ROUTINE;
@@ -541,12 +586,16 @@ int GMRFLib_solve_l_sparse_matrix_special(double *rhs, GMRFLib_sm_fact_tp * sm_f
 	GMRFLib_ENTER_ROUTINE;
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP0(GMRFLib_solve_l_sparse_matrix_special_BAND
 			       (rhs, sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth, findx, toindx, remapped));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP0(GMRFLib_solve_l_sparse_matrix_special_TAUCS(rhs, sm_fact->TAUCS_L, graph, sm_fact->remap, findx, toindx, remapped));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
@@ -574,15 +623,21 @@ int GMRFLib_log_determinant(double *logdet, GMRFLib_sm_fact_tp * sm_fact, GMRFLi
 {
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP0(GMRFLib_log_determinant_BAND(logdet, sm_fact->bchol, graph, sm_fact->bandwidth));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP0(GMRFLib_log_determinant_TAUCS(logdet, sm_fact->TAUCS_L));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		*logdet = GMRFLib_pardiso_logdet(sm_fact->PARDISO_fact);
+	}
 		break;
 
 	default:
@@ -602,16 +657,22 @@ int GMRFLib_comp_cond_meansd(double *cmean, double *csd, int indx, double *x, in
 	GMRFLib_ENTER_ROUTINE;
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP1(GMRFLib_comp_cond_meansd_BAND
 			       (cmean, csd, indx, x, remapped, sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP1(GMRFLib_comp_cond_meansd_TAUCS(cmean, csd, indx, x, remapped, sm_fact->TAUCS_L, graph, sm_fact->remap));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		assert(0 == 1);
+	}
 		break;
 
 	default:
@@ -630,15 +691,21 @@ int GMRFLib_bitmap_factorisation(const char *filename_body, GMRFLib_sm_fact_tp *
 {
 	switch (sm_fact->smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP1(GMRFLib_bitmap_factorisation_BAND(filename_body, sm_fact->bchol, graph, sm_fact->remap, sm_fact->bandwidth));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP1(GMRFLib_bitmap_factorisation_TAUCS(filename_body, sm_fact->TAUCS_L));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		GMRFLib_EWRAP1(GMRFLib_pardiso_bitmap());
+	}
 		break;
 
 	default:
@@ -658,15 +725,21 @@ int GMRFLib_compute_Qinv(void *problem)
 
 	switch (p->sub_sm_fact.smtp) {
 	case GMRFLib_SMTP_BAND:
+	{
 		GMRFLib_EWRAP0(GMRFLib_compute_Qinv_BAND(p));
+	}
 		break;
 
 	case GMRFLib_SMTP_TAUCS:
+	{
 		GMRFLib_EWRAP0(GMRFLib_compute_Qinv_TAUCS(p));
+	}
 		break;
 
 	case GMRFLib_SMTP_PARDISO:
+	{
 		GMRFLib_pardiso_Qinv_INLA(p);
+	}
 		break;
 
 	default:

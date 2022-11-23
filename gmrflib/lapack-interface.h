@@ -73,28 +73,44 @@ int dpotrs_(const char *, int *, int *, double *, int *, double *, int *, int *,
 int dchdc_(double *, int *, int *, double *, int *, int *, int *, double *);
 int dtrmv_(const char *, const char *, const char *, int *, double *, int *, double *, int *,
 	   fortran_charlen_t, fortran_charlen_t, fortran_charlen_t);
+int idamax_(int *, double *, int *);
 
 int GMRFLib_comp_chol_general(double **chol, double *matrix, int dim, double *logdet, int ecode);
 int GMRFLib_comp_chol_semidef(double **chol, int **map, int *rank, double *matrix, int dim, double *logdet, double eps);
 int GMRFLib_comp_posdef_inverse(double *matrix, int dim);
-int GMRFLib_gsl_ensure_spd(gsl_matrix * A, double tol);
-int GMRFLib_ensure_spd(double *A, int dim, double tol);
+int GMRFLib_gsl_ensure_spd(gsl_matrix * A, double tol, char **msg);
+int GMRFLib_gsl_ensure_spd_inverse(gsl_matrix * A, double tol, char **msg);
+int GMRFLib_gsl_ensure_spd_core(gsl_matrix * A, double tol, int method, char **msg);
+int GMRFLib_ensure_spd(double *A, int dim, double tol, char **msg);
 int GMRFLib_solveAxb_posdef(double *sol, double *chol, double *b, int dim, int nrhs);
 
 int daxpy_(int *n, double *alpha, double *x, int *incx, double *y, int *incy);
 int dcopy_(int *n, double *x, int *incx, double *y, int *incy);
 int dscal_(int *n, double *alpha, double *x, int *inc);
-double ddot_(int *n, double *x, int *incx, double *y, int *incy);
-double dnrm2_(int *n, double *x, int *inc);
+int dscal_(int *n, double *a, double *x, int *incx);
 
-gsl_matrix *GMRFLib_gsl_duplicate_matrix(gsl_matrix * A);
+double ddot_(int *len, double *x, int *incx, double *y, int *incy);
+double dnrm2_(int *n, double *x, int *inc);
+double dasum_(int *n, double *x, int *inc);
+
+int GMRFLib_dscale(int n, double a, double *x);
+
 double GMRFLib_gsl_spd_logdet(gsl_matrix * A);
-int GMRFLib_gsl_spd_inverse(gsl_matrix * A);
+double GMRFLib_gsl_xQx(gsl_vector * x, gsl_matrix * Q);
+double GMRFLib_gsl_log_dnorm(gsl_vector * x, gsl_vector * mean, gsl_matrix * Q, gsl_matrix * S, int identity);
+double GMRFLib_gsl_kld(gsl_vector * m_base, gsl_matrix * Q_base, gsl_vector * m, gsl_matrix * Q, double tol, int *rankdef);
+gsl_matrix *GMRFLib_gsl_duplicate_matrix(gsl_matrix * A);
+gsl_matrix *GMRFLib_gsl_transpose_matrix(gsl_matrix * A);
+gsl_matrix *GMRFLib_gsl_low_rank(gsl_matrix * C, double tol);
+int GMRFLib_gsl_gcpo_singular_fix(int *idx_map, size_t idx_node, gsl_matrix * S, double epsilon);
 int GMRFLib_gsl_ginv(gsl_matrix * A, double tol, int rankdef);
 int GMRFLib_gsl_mgs(gsl_matrix * A);
+int GMRFLib_gsl_mv(gsl_matrix * A, gsl_vector * x, gsl_vector * b);
+int GMRFLib_gsl_mm(gsl_matrix * A, gsl_matrix * B, gsl_matrix * C);
+int GMRFLib_gsl_mmm(gsl_matrix * A, gsl_matrix * B, gsl_matrix * C, gsl_matrix * D);
 int GMRFLib_gsl_safe_spd_solve(gsl_matrix * A, gsl_vector * b, gsl_vector * x, double tol);
 int GMRFLib_gsl_spd_inv(gsl_matrix * A, double tol);
-int GMRFLib_gsl_mv(gsl_matrix * A, gsl_vector * x, gsl_vector * b);
+int GMRFLib_gsl_spd_inverse(gsl_matrix * A);
 
 __END_DECLS
 #endif

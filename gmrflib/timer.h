@@ -72,46 +72,26 @@ __BEGIN_DECLS
 /*!
   \brief Macro to be placed at the entry point of each routine which CPU time is be monitored.
 */
-#define GMRFLib_ENTER_ROUTINE GMRFLib_DEBUG_INIT();			\
-	static double debug_cpu_acc_ = 0.0;				\
-	_Pragma("omp threadprivate(debug_cpu_acc_)")			\
-	static double debug_cpu_ = 0.0;					\
-	_Pragma("omp threadprivate(debug_cpu_)")			\
-	debug_cpu_ = GMRFLib_cpu();					\
-	GMRFLib_DEBUG_d("Enter", debug_cpu_);				\
-	if (GMRFLib_collect_timer_statistics) {				\
-		GMRFLib_timer_enter(GMRFLib_timer_strip(__GMRFLib_FuncName)); \
-	}
+#define GMRFLib_ENTER_ROUTINE \
+	GMRFLib_DEBUG_INIT();						\
+	GMRFLib_TRACE_INIT();						\
+	static double trace_cpu_acc_ = 0.0;				\
+	_Pragma("omp threadprivate(trace_cpu_acc_)")			\
+	static double trace_cpu_ = 0.0;					\
+	_Pragma("omp threadprivate(trace_cpu_)")			\
+	trace_cpu_ = GMRFLib_cpu();					\
+	GMRFLib_DEBUG_d("Enter", trace_cpu_);
 
 /*!
   \brief Macro to be placed at \em each exit point of each routine which CPU time is be monitored.
 */
 #define GMRFLib_LEAVE_ROUTINE if (1)					\
 	{								\
-		debug_cpu_acc_ += (GMRFLib_cpu() - debug_cpu_);		\
-		GMRFLib_DEBUG_idd("Leave, count cpu/count total", debug_count_, debug_cpu_acc_ / (double) debug_count_, debug_cpu_acc_); \
-		if (GMRFLib_collect_timer_statistics) {			\
-			GMRFLib_timer_leave(GMRFLib_timer_strip(__GMRFLib_FuncName)); \
-		}							\
+		trace_cpu_acc_ += (GMRFLib_cpu() - trace_cpu_);		\
+		GMRFLib_TRACE_idd("Leave, count cpu/count*1E6 total", trace_count_, 1.0E6 * trace_cpu_acc_ / (double) trace_count_, trace_cpu_acc_); \
 	}
 
 double GMRFLib_cpu_default(void);
-int GMRFLib_timer_compare(const void *a, const void *b);
-int GMRFLib_timer_enter(const char *name);
-int GMRFLib_timer_find_entry(const char *name);
-int GMRFLib_timer_full_report(FILE * fp);
-int GMRFLib_timer_init(void);
-int GMRFLib_timer_leave(const char *name);
-int GMRFLib_timer_print_entry(FILE * ffp, GMRFLib_timer_hashval_tp * p, double total_acc_time);
-int GMRFLib_timer_report(FILE * fp);
-int GMRFLib_timer_report_OLD(FILE * fp);
-int GMRFLib_timer_table_expand(void);
-int GMRFLib_timer_table_sort(void);
-int GMRFLib_timer_exit(void);
-const char *GMRFLib_timer_strip_store(const char *name);
-const char *GMRFLib_timer_strip__intern(const char *name);
-const char *GMRFLib_timer_strip(const char *name);
-void GMRFLib_timer_report__signal(int sig);
 
 __END_DECLS
 #endif

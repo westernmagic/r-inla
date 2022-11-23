@@ -34,6 +34,16 @@
 static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 
 #if !defined(__FreeBSD__)
+#include <assert.h>
+#include <float.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <math.h>
+#include <strings.h>
+#include <stdio.h>
+#if !defined(__FreeBSD__)
+#include <malloc.h>
+#endif
 #include <stddef.h>
 #include <string.h>
 #include <malloc.h>
@@ -44,48 +54,138 @@ static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 #include "GMRFLib/GMRFLibP.h"
 #include "GMRFLib/hashP.h"
 
-/* 
- *  compile with -DGMRFLib_MEMCHECK to enable the internal memcheck utility. Do not work with OPENMP. compile with -DGMRFLib_MEMINFO to enable the meminfo utility.
- *  compute with -DGMRFLib_TRACE_MEMORY to view memory allocation
- */
-
-static map_vpvp memcheck_hash_table;
-static int memcheck_verbose = 0;
-static int memcheck_first = 1;
-
-#if defined(GMRFLib_MEMINFO)
-static GMRFLib_meminfo_tp *MemInfo = NULL;
-#define MEMINFO(_size) \
-	if (GMRFLib_meminfo_thread_id != 0) {				\
-		assert(IABS(GMRFLib_meminfo_thread_id) < 1+omp_get_max_threads()); \
-		if (!MemInfo){						\
-			_Pragma("omp critial")				\
-			{						\
-				if (!MemInfo)				\
-					MemInfo = (GMRFLib_meminfo_tp *) calloc(1+omp_get_max_threads(), sizeof(GMRFLib_meminfo_tp)); \
-			}						\
-		}							\
-		if (GMRFLib_meminfo_thread_id > 0) {			\
-			MemInfo[GMRFLib_meminfo_thread_id].n++;	\
-			MemInfo[GMRFLib_meminfo_thread_id].bytes += _size; \
-		} else if (GMRFLib_meminfo_thread_id < 0 && MemInfo[-GMRFLib_meminfo_thread_id].n > 0) { \
-			_Pragma("omp critial")				\
-			{						\
-				if (GMRFLib_meminfo_thread_id < 0 && MemInfo[-GMRFLib_meminfo_thread_id].n > 0) { \
-					printf("\nMemInfo thread_id %d\n", -GMRFLib_meminfo_thread_id); \
-					printf("\tn %g\n", (double) MemInfo[-GMRFLib_meminfo_thread_id].n); \
-					printf("\tb %g Mb\n\n", ((double) MemInfo[-GMRFLib_meminfo_thread_id].bytes)/1024.0/1024.0); \
-					MemInfo[-GMRFLib_meminfo_thread_id].n = MemInfo[-GMRFLib_meminfo_thread_id].bytes = 0; \
-				}					\
-			}						\
-		}							\
-	}
-#else
-#define MEMINFO(_size) if (0) {}
-#endif
-
 #define IDX_ALLOC_INITIAL 64
 #define IDX_ALLOC_ADD     512
+
+void GMRFLib_delay(int msec)
+{
+	long pause;
+	clock_t now, then;
+
+	pause = msec * (CLOCKS_PER_SEC / 1000);
+	now = then = clock();
+	while ((now - then) < pause) {
+		now = clock();
+	}
+}
+
+void GMRFLib_delay_random(int msec_low, int msec_high)
+{
+	GMRFLib_delay(msec_low + (int) ((msec_high - msec_low) * GMRFLib_uniform()));
+}
+
+int GMRFLib_sprintf(char **ptr, const char *fmt, ...)
+{
+	/*
+	 * parts of this code is copied from the manual page of snprintf. 
+	 */
+
+	int n, size = 128 + 1;
+	char *p;
+	va_list ap;
+
+	GMRFLib_ASSERT(ptr, GMRFLib_EINVARG);
+	GMRFLib_ASSERT(fmt, GMRFLib_EINVARG);
+
+	p = Calloc(size, char);
+
+	while (1) {
+		/*
+		 * Try to print in the allocated space. 
+		 */
+		va_start(ap, fmt);
+		n = vsnprintf(p, (unsigned int) size, fmt, ap);
+		va_end(ap);
+
+		/*
+		 * if that worked, return the string, 
+		 */
+		if (n > -1 && n < size) {
+			*ptr = p;
+			return GMRFLib_SUCCESS;
+		}
+
+		/*
+		 * ...else try again with more space 
+		 */
+		if (n > -1) {
+			size = n + 1;
+		} else {
+			size *= 2;
+		}
+		p = Realloc(p, size, char);
+	}
+
+	return GMRFLib_SUCCESS;
+}
+
+void *GMRFLib_memcpy(void *dest, const void *src, size_t n)
+{
+	assert(n < PTRDIFF_MAX);
+	memcpy(dest, src, n);
+	return NULL;
+}
+
+void *GMRFLib_calloc(size_t nmemb, size_t size, const char *file, const char *funcname, int lineno, const char *id)
+{
+	void *ptr = NULL;
+	char *msg = NULL;
+
+	assert(nmemb * size < PTRDIFF_MAX);
+	ptr = calloc(nmemb, size);
+
+	if (ptr) {
+		return ptr;
+	}
+	GMRFLib_sprintf(&msg, "Failed to calloc nmemb=%1lu elements of size=%1lu bytes", nmemb, size);
+	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
+	abort();
+
+	return NULL;
+}
+
+void *GMRFLib_malloc(size_t size, const char *file, const char *funcname, int lineno, const char *id)
+{
+	void *ptr = NULL;
+	char *msg = NULL;
+
+	assert(size < PTRDIFF_MAX);
+	ptr = malloc(size);
+	if (ptr) {
+		return ptr;
+	}
+	GMRFLib_sprintf(&msg, "Failed to malloc size=%1lu bytes", size);
+	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
+	abort();
+
+	return NULL;
+}
+
+void *GMRFLib_realloc(void *old_ptr, size_t size, const char *file, const char *funcname, int lineno, const char *id)
+{
+	void *ptr = NULL;
+	char *msg = NULL;
+
+	assert(size < PTRDIFF_MAX);
+	ptr = realloc(old_ptr, size);
+	if (ptr) {
+		return ptr;
+	}
+	GMRFLib_sprintf(&msg, "Failed to realloc size=%1lu bytes", size);
+	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
+	abort();
+
+	return NULL;
+}
+
+void GMRFLib_free(void *ptr, const char *file, const char *funcname, int lineno, const char *id)
+{
+	if (ptr) {
+		free(ptr);
+	} else {
+		fprintf(stderr, "%s:%s:%d (%s): Try to free a NULL-ptr\n", file, funcname, lineno, id);
+	}
+}
 
 char *GMRFLib_rindex(const char *p, int ch)
 {
@@ -120,37 +220,28 @@ int GMRFLib_which(double val, double *array, int len)
 	return -1;
 }
 
-forceinline int GMRFLib_iwhich_sorted(int val, int *ix, int len, int *guess)
+int GMRFLib_iwhich_sorted_g2(int val, int *__restrict ix, int len, int *__restrict guess)
 {
-	// return the index of iarray for which ix[idx]=val and we KNOW that ix is sorted, and return -1 if not found. 'guess' (NULL is not
-	// allowed) is an initial guess for [low,high] and automatically updated. initialize with guess[1]=0. 'guess' must be threadprivate
+	// return the index of iarray for which ix[idx]=val and we KNOW that ix is sorted, and return -1 if not found.
 
-	if (len == 0) {
-		return -1;
-	}
+	// 'guess' is an initial guess for [low,high] and automatically updated. initialize with guess[1]=0. 'guess' must be thread-safe
 
-	int low, high, mid, n, lguess[2] = { 0, 0 };
+	// This is a simpler interface than the guess[2] that was before.
 
-	if (!guess) {
-		guess = lguess;
-	}
-	// use the guess of [low,high] ? MUST BE INITIALIZED to [0,0]!
-	if (guess[1] == 0 || guess[1] >= len || guess[1] <= guess[0]) {
-		// invalid values for 'guess', no need to check
-		low = 0;
-		high = len - 1;
-	} else {
-		low = (val >= ix[guess[0]] ? guess[0] : 0);
-		high = (val <= ix[guess[1]] ? guess[1] : len - 1);
-	}
+	// it MUST SATISFY: guess[0] and guess[1] < LEN, this is NOT checked for.
+
+	int low, high;
+
+	low = (val >= ix[guess[0]] ? guess[0] : 0);
+	high = (val <= ix[guess[1]] ? guess[1] : len - 1);
 
 	while (1) {
-		n = high - low + 1;			       // 'n' is how many alternatives left 
-		if (n <= 8) {
-			guess[1] = high + 1;
+		int range = high - low;
+		if (range < 4L) {
 			for (int i = low; i <= high; i++) {
 				if (ix[i] == val) {
-					guess[0] = i + 1;
+					guess[0] = i;
+					guess[1] = high;
 					return i;
 				}
 			}
@@ -158,7 +249,7 @@ forceinline int GMRFLib_iwhich_sorted(int val, int *ix, int len, int *guess)
 			guess[1] = high;
 			return -1;
 		} else {
-			mid = low + (high - low) / 2;	       /* integer division */
+			int mid = low + range / 2L;	       /* integer division */
 			if (ix[mid] > val) {
 				high = mid;
 			} else {
@@ -166,9 +257,90 @@ forceinline int GMRFLib_iwhich_sorted(int val, int *ix, int len, int *guess)
 			}
 		}
 	}
-
 	return -1;
 }
+
+int GMRFLib_iwhich_sorted_g(int val, int *__restrict ix, int len, int *__restrict low_guess)
+{
+	// return the index of iarray for which ix[idx]=val and we KNOW that ix is sorted, and return -1 if not found.
+
+	// low_guess is an estimate of the lower-bound of the index, it might be updated and must be thread safe.
+
+	// This is a much simplified interface than the guess[2] that was before.
+
+	// it MUST SATISFY: *low_guess < LEN, this is NOT checked for.
+
+	int low = *low_guess, high = len - 1, range, mid;
+
+	if (val < ix[low]) {
+		low = 0;
+	}
+	while ((range = high - low) > 2) {
+		mid = low + range / 2;
+		if (ix[mid] > val) {
+			high = mid;
+		} else {
+			low = mid;
+		}
+	}
+
+	for (int i = low; i < high + 1; i++) {
+		if (ix[i] == val) {
+			*low_guess = i + 1;
+			return i;
+		}
+	}
+	*low_guess = low;
+	return -1;
+}
+
+int GMRFLib_iwhich_sorted_g_new(int key, int *__restrict ix, int len, int *__restrict low_guess)
+{
+	int low = *low_guess, mid, top, val, *piv = NULL, *base = ix;
+
+	if (key < ix[low]) {
+		low = 0;
+	}
+	base += low;
+	mid = top = len - low;
+	while (mid) {
+		mid = top / 2;
+		piv = base + mid;
+		val = key - *piv;
+		if (val == 0) {
+			*low_guess = piv - ix + 1;
+			return piv - ix;
+		}
+		if (val > 0) {
+			base = piv;
+		}
+		top -= mid;
+	}
+	*low_guess = piv - ix;
+	return -1;
+}
+
+int GMRFLib_iwhich_sorted(int key, int *__restrict ix, int len)
+{
+	int mid, top, val, *piv = NULL, *base = ix;
+
+	mid = top = len;
+	while (mid) {
+		mid = top / 2;
+		piv = base + mid;
+		val = key - *piv;
+		if (val == 0) {
+			return piv - ix;
+		}
+		if (val > 0) {
+			base = piv;
+		}
+		top -= mid;
+	}
+	return -1;
+}
+
+
 int GMRFLib_find_nonzero(double *array, int len, int direction)
 {
 	/*
@@ -226,7 +398,7 @@ int GMRFLib_print_iarray(FILE * fp, int *x, int n, const char *desc)
 	return GMRFLib_SUCCESS;
 }
 
-forceinline int GMRFLib_icmp(const void *a, const void *b)
+int GMRFLib_icmp(const void *a, const void *b)
 {
 	const int *ia, *ib;
 
@@ -236,12 +408,12 @@ forceinline int GMRFLib_icmp(const void *a, const void *b)
 	return (*ia - *ib);
 }
 
-forceinline int GMRFLib_icmp_r(const void *a, const void *b)
+int GMRFLib_icmp_r(const void *a, const void *b)
 {
 	return (-GMRFLib_icmp(a, b));
 }
 
-forceinline int GMRFLib_dcmp(const void *a, const void *b)
+int GMRFLib_dcmp(const void *a, const void *b)
 {
 	const double *da = NULL, *db = NULL;
 
@@ -258,12 +430,12 @@ forceinline int GMRFLib_dcmp(const void *a, const void *b)
 	return 0;
 }
 
-forceinline int GMRFLib_dcmp_r(const void *a, const void *b)
+int GMRFLib_dcmp_r(const void *a, const void *b)
 {
 	return (-GMRFLib_dcmp(a, b));
 }
 
-forceinline int GMRFLib_dcmp_abs(const void *a, const void *b)
+int GMRFLib_dcmp_abs(const void *a, const void *b)
 {
 	const double *da = NULL, *db = NULL;
 
@@ -296,7 +468,7 @@ forceinline int GMRFLib_dcmp_abs(const void *a, const void *b)
 	return 0;
 }
 
-forceinline int GMRFLib_dcmp_abs_r(const void *a, const void *b)
+int GMRFLib_dcmp_abs_r(const void *a, const void *b)
 {
 	return (-GMRFLib_dcmp_abs(a, b));
 }
@@ -388,128 +560,12 @@ double GMRFLib_log_apbex(double a, double b)
 	}
 }
 
-void *GMRFLib_memcpy(void *dest, const void *src, size_t n)
-{
-	assert(n < PTRDIFF_MAX);
-	memcpy(dest, src, n);
-	return NULL;
-}
-
-void *GMRFLib_calloc(size_t nmemb, size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *ptr = NULL;
-	char *msg = NULL;
-
-	assert(nmemb * size < PTRDIFF_MAX);
-	MEMINFO(nmemb * size);
-
-#if defined(GMRFLib_MEMCHECK) && !defined(_OPENMP)
-	ptr = GMRFLib_calloc__(nmemb, size, file, funcname, lineno, id);
-#else
-	ptr = calloc(nmemb, size);
-#endif
-#if defined(GMRFLib_TRACE_MEMORY)
-	if (nmemb * size > GMRFLib_TRACE_MEMORY)
-		printf("%s:%s:%u: calloc %zu x %zu bytes, total %zu\n", file, funcname, lineno, nmemb, size, nmemb * size);
-#endif
-	if (ptr) {
-		return ptr;
-	}
-
-	/*
-	 * alloc failed 
-	 */
-	GMRFLib_sprintf(&msg, "Fail to calloc nmemb=%1lu elements of size=%1lu bytes", nmemb, size);
-	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
-	abort();
-
-	return NULL;
-}
-
-void *GMRFLib_malloc(size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *ptr = NULL;
-	char *msg = NULL;
-
-	assert(size < PTRDIFF_MAX);
-	MEMINFO(size);
-
-#if defined(GMRFLib_MEMCHECK) && !defined(_OPENMP)
-	ptr = GMRFLib_malloc__(size, file, funcname, lineno, id);
-#else
-	ptr = malloc(size);
-#endif
-#if defined(GMRFLib_TRACE_MEMORY)
-	if (size > GMRFLib_TRACE_MEMORY)
-		printf("%s:%s:%u: malloc %zu bytes, total %zu\n", file, funcname, lineno, size, size);
-#endif
-	if (ptr) {
-		return ptr;
-	}
-
-	/*
-	 * alloc failed 
-	 */
-	GMRFLib_sprintf(&msg, "Fail to malloc size=%1lu bytes", size);
-	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
-	abort();
-
-	return NULL;
-}
-
-void *GMRFLib_realloc(void *old_ptr, size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *ptr = NULL;
-	char *msg = NULL;
-
-	assert(size < PTRDIFF_MAX);
-	MEMINFO(size);
-
-#if defined(GMRFLib_MEMCHECK) && !defined(_OPENMP)
-	ptr = GMRFLib_realloc__(old_ptr, size, file, funcname, lineno, id);
-#else
-	ptr = realloc(old_ptr, size);
-#endif
-#if defined(GMRFLib_TRACE_MEMORY)
-	if (size > GMRFLib_TRACE_MEMORY)
-		printf("%s:%s:%u: realloc %zu bytes, total %zu\n", file, funcname, lineno, size, size);
-#endif
-	if (ptr) {
-		return ptr;
-	}
-
-	/*
-	 * realloc failed 
-	 */
-	GMRFLib_sprintf(&msg, "Fail to realloc size=%1lu bytes", size);
-	GMRFLib_handle_error(file, funcname, lineno, id, GMRFLib_EMEMORY, msg);
-	abort();
-
-	return NULL;
-}
-
-void GMRFLib_free(void *ptr, const char *file, const char *funcname, int lineno, const char *id)
-{
-	if (ptr) {
-#if defined(GMRFLib_MEMCHECK) && !defined(_OPENMP)
-		int choice = 1;
-#else
-		int choice = 0;
-#endif
-		if (choice) {
-			GMRFLib_free__(ptr, file, funcname, lineno, id);
-		} else {
-			free(ptr);
-		}
-	}
-}
-
 char *GMRFLib_strdup(const char *ptr)
 {
 	/*
 	 * strdup is not part of ANSI-C 
 	 */
-#if defined(__STRICT_ANSI__) || defined(GMRFLib_MEMCHECK)
+#if defined(__STRICT_ANSI__)
 	if (ptr) {
 		size_t len = strlen(ptr);
 		char *str = Malloc(len + 1, char);
@@ -530,153 +586,14 @@ char *GMRFLib_strdup(const char *ptr)
 #endif
 }
 
-void *GMRFLib_malloc__(size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *p = NULL;
-
-	p = malloc(size);
-	GMRFLib_memcheck_register(p, size, file, funcname, lineno, id);
-	return p;
-}
-
-void *GMRFLib_calloc__(size_t nmemb, size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *p = NULL;
-
-	p = calloc(nmemb, size);
-	GMRFLib_memcheck_register(p, size, file, funcname, lineno, id);
-	return p;
-}
-
-void *GMRFLib_realloc__(void *old_ptr, size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *p = NULL;
-
-	p = realloc(old_ptr, size);
-	GMRFLib_memcheck_remove(old_ptr, file, funcname, lineno, id);
-	GMRFLib_memcheck_register(p, size, file, funcname, lineno, id);
-	return p;
-}
-
-void GMRFLib_free__(void *ptr, const char *file, const char *funcname, int lineno, const char *id)
-{
-	if (!ptr) {
-		return;
-	}
-	if (memcheck_first) {
-		map_vpvp_init_hint(&memcheck_hash_table, 10000);
-		memcheck_first = 0;
-	}
-	if (ptr && !map_vpvp_ptr(&memcheck_hash_table, ptr)) {
-		GMRFLib_memcheck_error("try to free a ptr not alloced", ptr, file, funcname, lineno, id);
-	}
-	GMRFLib_memcheck_remove(ptr, file, funcname, lineno, id);
-	free(ptr);
-
-	return;
-}
-
-char *GMRFLib_memcheck_make_tag(size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	char *tag = NULL;
-
-	tag = (char *) calloc(1024 + 1, sizeof(char));
-	snprintf(tag, 1024, "size: %zu bytes \tfile: %s \tfuncname: %s \tlineno: %d \tid: %s", size, file, funcname, lineno, id);
-
-	return tag;
-}
-
-int GMRFLib_memcheck_error(const char *msg, void *p, const char *file, const char *funcname, int lineno, const char *id)
-{
-	printf("GMRFLib_memcheck: %s [0x%" PRIxPTR "]\n", msg, (uintptr_t) p);
-	printf("called from file %s funcname %s lineno %d id %s\n", file, funcname, lineno, id);
-	abort();
-	return GMRFLib_SUCCESS;
-}
-
-int GMRFLib_memcheck_register(void *p, size_t size, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *tag = NULL;
-
-	if (!p) {
-		return GMRFLib_SUCCESS;
-	}
-	if (memcheck_first) {
-		map_vpvp_init_hint(&memcheck_hash_table, 10000);
-		memcheck_first = 0;
-	}
-	if (map_vpvp_ptr(&memcheck_hash_table, p)) {
-		GMRFLib_memcheck_error("register a ptr not free'd", p, file, funcname, lineno, id);
-	} else {
-		tag = (void *) GMRFLib_memcheck_make_tag(size, file, funcname, lineno, id);
-		map_vpvp_set(&memcheck_hash_table, p, tag);
-	}
-
-	if (memcheck_verbose) {
-		printf("%s: 0x%" PRIxPTR " %sn\n", __GMRFLib_FuncName, (uintptr_t) p, (char *) tag);
-	}
-
-	return GMRFLib_SUCCESS;
-}
-
-int GMRFLib_memcheck_remove(void *p, const char *file, const char *funcname, int lineno, const char *id)
-{
-	void *ptr = NULL;
-
-	if (!p) {
-		return GMRFLib_SUCCESS;
-	}
-	if (memcheck_first) {
-		map_vpvp_init_hint(&memcheck_hash_table, 10000);
-		memcheck_first = 0;
-	}
-	ptr = map_vpvp_ptr(&memcheck_hash_table, p);
-	if (!ptr) {
-		GMRFLib_memcheck_error("remove ptr not registered", p, file, funcname, lineno, id);
-	}
-	if (memcheck_verbose)
-		printf("%s: 0x%" PRIxPTR " %sn\n", __GMRFLib_FuncName, (uintptr_t) p, *((char **) ptr));
-
-	free(*((void **) ptr));
-	map_vpvp_remove(&memcheck_hash_table, p);
-
-	return GMRFLib_SUCCESS;
-}
-
-int GMRFLib_memcheck_printf(FILE * fp)
-{
-#if defined(GMRFLib_MEMCHECK) && !defined(_OPENMP)
-	int choice = 1;
-#else
-	int choice = 0;
-#endif
-
-	if (choice == 1) {
-		int i;
-		fp = (fp ? fp : stdout);
-		if (!memcheck_first) {
-			for (i = -1; (i = map_vpvp_next(&memcheck_hash_table, i)) != -1;) {
-				fprintf(fp, "0x%zu %s\n", (size_t) memcheck_hash_table.contents[i].key,
-					(char *) memcheck_hash_table.contents[i].value);
-			}
-		}
-	}
-
-	return GMRFLib_SUCCESS;
-}
-
 int GMRFLib_normalize(int n, double *x)
 {
 	// scale x so the sum is 1
 
-	double sum = 0.0;
-	for (int i = 0; i < n; i++) {
-		sum += x[i];
-	}
-	sum = 1.0 / sum;
-	for (int i = 0; i < n; i++) {
-		x[i] *= sum;
-	}
+	double sum;
+	sum = GMRFLib_dsum(n, x);
+	GMRFLib_dscale(n, 1.0 / sum, x);
+
 	return GMRFLib_SUCCESS;
 }
 int GMRFLib_unique_relative(int *n, double *x, double eps)
@@ -790,7 +707,7 @@ int GMRFLib_unique_additive2(int *n, double *x, double *y, double eps)
 int GMRFLib_printf_matrix(FILE * fp, double *A, int m, int n)
 {
 	// A is m x n matrix
-#pragma omp critical
+#pragma omp critical (Name_bb051132870d1f0b90133946052e91194aa163a5)
 	{
 		fprintf(fp, "\n\n");
 		for (int i = 0; i < m; i++) {
@@ -823,6 +740,24 @@ int GMRFLib_printf_gsl_matrix(FILE * fp, gsl_matrix * matrix, const char *format
 	for (i = 0; i < matrix->size1; i++) {
 		for (j = 0; j < matrix->size2; j++) {
 			fprintf(fp, (format ? format : " %g"), gsl_matrix_get(matrix, i, j));
+		}
+		fprintf(fp, "\n");
+	}
+	return GMRFLib_SUCCESS;
+}
+
+int GMRFLib_printf_gsl_matrix2(FILE * fp, gsl_matrix * matrix, const char *format, double cutoff)
+{
+	size_t i, j;
+
+	for (i = 0; i < matrix->size1; i++) {
+		for (j = 0; j < matrix->size2; j++) {
+			double a = gsl_matrix_get(matrix, i, j);
+			if (ABS(a) > cutoff) {
+				fprintf(fp, (format ? format : " %g"), gsl_matrix_get(matrix, i, j));
+			} else {
+				fprintf(fp, "\t %s", "  . ");
+			}
 		}
 		fprintf(fp, "\n");
 	}
@@ -1121,563 +1056,6 @@ int GMRFLib_gsl_mat2plain(double **out, gsl_matrix * mat)
 	return GMRFLib_SUCCESS;
 }
 
-forceinline int GMRFLib_idx_create(GMRFLib_idx_tp ** hold)
-{
-	return GMRFLib_idx_create_x(hold, IDX_ALLOC_INITIAL);
-}
-
-forceinline int GMRFLib_idx_create_x(GMRFLib_idx_tp ** hold, int len)
-{
-	*hold = Calloc(1, GMRFLib_idx_tp);
-	(*hold)->idx = Calloc(len, int);
-	(*hold)->n_alloc = len;
-	(*hold)->n = 0;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_create(GMRFLib_idx2_tp ** hold)
-{
-	return GMRFLib_idx2_create_x(hold, IDX_ALLOC_INITIAL);
-}
-
-forceinline int GMRFLib_idx2_create_x(GMRFLib_idx2_tp ** hold, int len)
-{
-	*hold = Calloc(1, GMRFLib_idx2_tp);
-	(*hold)->idx = Calloc(2, int *);
-	(*hold)->idx[0] = Calloc(len, int);
-	(*hold)->idx[1] = Calloc(len, int);
-	(*hold)->n_alloc = len;
-	(*hold)->n = 0;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_create(GMRFLib_val_tp ** hold)
-{
-	*hold = Calloc(1, GMRFLib_val_tp);
-	(*hold)->val = Calloc(IDX_ALLOC_INITIAL, double);
-	(*hold)->n_alloc = IDX_ALLOC_INITIAL;
-	(*hold)->n = 0;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_create(GMRFLib_idxval_tp ** hold)
-{
-	return GMRFLib_idxval_create_x(hold, IDX_ALLOC_INITIAL);
-}
-
-forceinline int GMRFLib_idxval_create_x(GMRFLib_idxval_tp ** hold, int len)
-{
-	*hold = Calloc(1, GMRFLib_idxval_tp);
-	(*hold)->idx = Calloc(len, int);
-	(*hold)->val = Calloc(len, double);
-	(*hold)->n_alloc = len;
-	(*hold)->n = 0;
-	(*hold)->iaddto = 0;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline GMRFLib_idx_tp **GMRFLib_idx_ncreate(int n)
-{
-	GMRFLib_idx_tp **a = Calloc(n, GMRFLib_idx_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idx_create(&(a[i]));
-	}
-	return a;
-}
-
-forceinline GMRFLib_idx_tp **GMRFLib_idx_ncreate_x(int n, int len)
-{
-	GMRFLib_idx_tp **a = Calloc(n, GMRFLib_idx_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idx_create_x(&(a[i]), len);
-	}
-	return a;
-}
-
-forceinline GMRFLib_idx2_tp **GMRFLib_idx2_ncreate(int n)
-{
-	GMRFLib_idx2_tp **a = Calloc(n, GMRFLib_idx2_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idx2_create(&(a[i]));
-	}
-	return a;
-}
-
-forceinline GMRFLib_idx2_tp **GMRFLib_idx2_ncreate_x(int n, int len)
-{
-	GMRFLib_idx2_tp **a = Calloc(n, GMRFLib_idx2_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idx2_create_x(&(a[i]), len);
-	}
-	return a;
-}
-
-forceinline GMRFLib_val_tp **GMRFLib_val_ncreate(int n)
-{
-	GMRFLib_val_tp **a = Calloc(n, GMRFLib_val_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_val_create(&(a[i]));
-	}
-	return a;
-}
-
-forceinline GMRFLib_idxval_tp **GMRFLib_idxval_ncreate(int n)
-{
-	GMRFLib_idxval_tp **a = Calloc(n, GMRFLib_idxval_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idxval_create(&(a[i]));
-	}
-	return a;
-}
-
-forceinline GMRFLib_idxval_tp **GMRFLib_idxval_ncreate_x(int n, int len)
-{
-	GMRFLib_idxval_tp **a = Calloc(n, GMRFLib_idxval_tp *);
-	for (int i = 0; i < n; i++) {
-		GMRFLib_idxval_create_x(&(a[i]), len);
-	}
-	return a;
-}
-
-forceinline int GMRFLib_idx_printf(FILE * fp, GMRFLib_idx_tp * hold, char *msg)
-{
-	if (hold) {
-		fprintf(fp, "[%s] n = %1d  nalloc = %1d\n", msg, hold->n, hold->n_alloc);
-		for (int i = 0; i < hold->n; i++) {
-			fprintf(fp, "\tidx[%1d] = %1d\n", i, hold->idx[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_printf(FILE * fp, GMRFLib_idx2_tp * hold, char *msg)
-{
-	if (hold) {
-		fprintf(fp, "[%s] n = %1d  nalloc = %1d\n", msg, hold->n, hold->n_alloc);
-		for (int i = 0; i < hold->n; i++) {
-			fprintf(fp, "\tidx[][%1d] = %1d %1d\n", i, hold->idx[0][i], hold->idx[1][i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_printf(FILE * fp, GMRFLib_val_tp * hold, char *msg)
-{
-	if (hold) {
-		fprintf(fp, "[%s] n = %1d  nalloc = %1d\n", msg, hold->n, hold->n_alloc);
-		for (int i = 0; i < hold->n; i++) {
-			fprintf(fp, "\tval[%1d] = %g\n", i, hold->val[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_printf(FILE * fp, GMRFLib_idxval_tp * hold, char *msg)
-{
-	if (hold) {
-		fprintf(fp, "[%s] n = %1d  nalloc = %1d iaddto = %1d\n", msg, hold->n, hold->n_alloc, hold->iaddto);
-		for (int i = 0; i < hold->n; i++) {
-			fprintf(fp, "\t(idx, val)[%1d] = (%d, %g)\n", i, hold->idx[i], hold->val[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_nprune(GMRFLib_idx_tp ** a, int n)
-{
-	if (a) {
-		for (int i = 0; i < n; i++) {
-			GMRFLib_idx_prune(a[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_sort(GMRFLib_idx_tp * hold)
-{
-	if (hold) {
-		qsort((void *) hold->idx, (size_t) hold->n, sizeof(int), GMRFLib_icmp);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_nsort(GMRFLib_idx_tp ** a, int n, int nt)
-{
-#define CODE_BLOCK							\
-	for(int i = 0; i < n; i++) {					\
-		CODE_BLOCK_SET_THREAD_ID();				\
-		if (a[i] && a[i]->n > 1) {				\
-			qsort((void *) a[i]->idx, (size_t) a[i]->n,  sizeof(int), GMRFLib_icmp); \
-		}							\
-	}
-
-	RUN_CODE_BLOCK(nt, 0, 0);
-#undef CODE_BLOCK
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_uniq(GMRFLib_idx_tp * hold)
-{
-	if (hold && hold->n > 1) {
-		int i, j;
-
-		GMRFLib_idx_sort(hold);
-		for (j = 0, i = 0; i < hold->n; i++) {
-			if (hold->idx[j] != hold->idx[i]) {
-				hold->idx[++j] = hold->idx[i];
-			}
-		}
-		hold->n = j + 1;
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_nuniq(GMRFLib_idx_tp ** a, int n, int nt)
-{
-#define CODE_BLOCK				\
-	for (int i = 0; i < n; i++) {		\
-		CODE_BLOCK_SET_THREAD_ID();	\
-		GMRFLib_idx_uniq(a[i]);		\
-	}
-
-	RUN_CODE_BLOCK(nt, 0, 0);
-#undef CODE_BLOCK
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_nprune(GMRFLib_idx2_tp ** a, int n)
-{
-	if (a) {
-		for (int i = 0; i < n; i++) {
-			GMRFLib_idx2_prune(a[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_nprune(GMRFLib_val_tp ** a, int n)
-{
-	if (a) {
-		for (int i = 0; i < n; i++) {
-			GMRFLib_val_prune(a[i]);
-		}
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_nuniq(GMRFLib_idxval_tp ** a, int n, int nt)
-{
-#define CODE_BLOCK					\
-	for (int i = 0; i < n; i++) {			\
-		CODE_BLOCK_SET_THREAD_ID();		\
-		GMRFLib_idxval_uniq(a[i]);		\
-	}
-
-	RUN_CODE_BLOCK(nt, 0, 0);
-#undef CODE_BLOCK
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_uniq(GMRFLib_idxval_tp * hold)
-{
-	// sort idx, and accumulate values and then prune
-	if (hold && hold->n > 1) {
-		int i, j;
-
-		GMRFLib_idxval_sort(hold);
-		for (j = 0, i = 0; i < hold->n; i++) {
-			if (hold->idx[j] == hold->idx[i]) {
-				if (i > j) {
-					hold->val[j] += hold->val[i];
-				}
-			} else {
-				j++;
-				hold->idx[j] = hold->idx[i];
-				hold->val[j] = hold->val[i];
-			}
-		}
-		hold->n = j + 1;
-		GMRFLib_idxval_prune(hold);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_nprune(GMRFLib_idxval_tp ** a, int n, int nt)
-{
-#define CODE_BLOCK					\
-	for (int i = 0; i < n; i++) {			\
-		CODE_BLOCK_SET_THREAD_ID();		\
-		GMRFLib_idxval_prune(a[i]);		\
-	}
-
-	RUN_CODE_BLOCK(nt, 0, 0);
-#undef CODE_BLOCK
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_prune(GMRFLib_idx_tp * hold)
-{
-	if (hold) {
-		hold->idx = Realloc(hold->idx, IMAX(1, hold->n), int);
-		hold->n_alloc = IMAX(1, hold->n);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_prune(GMRFLib_idx2_tp * hold)
-{
-	if (hold) {
-		hold->idx[0] = Realloc(hold->idx[0], IMAX(1, hold->n), int);
-		hold->idx[1] = Realloc(hold->idx[1], IMAX(1, hold->n), int);
-		hold->n_alloc = IMAX(1, hold->n);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_prune(GMRFLib_val_tp * hold)
-{
-	if (hold) {
-		hold->val = Realloc(hold->val, IMAX(1, hold->n), double);
-		hold->n_alloc = IMAX(1, hold->n);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_prune(GMRFLib_idxval_tp * hold)
-{
-	if (hold) {
-		int n = IMAX(1, hold->n);
-		hold->idx = Realloc(hold->idx, n, int);
-		hold->val = Realloc(hold->val, n, double);
-		hold->n_alloc = n;
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_sort(GMRFLib_idxval_tp * hold)
-{
-	return GMRFLib_idxval_nsort(&hold, 1, 1);
-}
-
-forceinline int GMRFLib_idxval_nsort(GMRFLib_idxval_tp ** hold, int n, int nt)
-{
-	const int debug = 0;
-
-#define CODE_BLOCK							\
-	for(int i = 0; i < n; i++) {					\
-		CODE_BLOCK_SET_THREAD_ID();				\
-		if (hold[i] && hold[i]->n > 1) {			\
-			GMRFLib_qsorts((void *) hold[i]->idx, (size_t) hold[i]->n, sizeof(int), \
-				       (void *) hold[i]->val, sizeof(double), NULL, (size_t) 0, GMRFLib_icmp); \
-		}							\
-		GMRFLib_idxval_tp *h = hold[i];				\
-		int ng = 1;						\
-		for(int j = 1; j < h->n; j++) {				\
-			if (h->idx[j] != h->idx[j-1] + 1) {		\
-				ng++;					\
-			}						\
-		}							\
-		int *g_i = Calloc(ng, int);				\
-		int *g_len = Calloc(ng, int);				\
-		int k = 0;						\
-		g_i[0] = 0;						\
-		for(int j = 1; j < h->n; j++) {				\
-			if (h->idx[j] != h->idx[j-1] + 1) {		\
-				g_len[k] = j - g_i[k];			\
-				k++;					\
-				g_i[k] = j;				\
-			}						\
-		}							\
-		g_len[ng-1] = h->n - g_i[ng - 1];			\
-									\
-		if (debug) {						\
-			printf("h->idx \t");				\
-			for(k = 0; k < h->n; k++){			\
-				printf(" %1d", h->idx[k]);		\
-			}						\
-			printf("\n");					\
-			for(int g = 0; g < ng; g++) {			\
-				printf("group %d has length %d and start at index %d\n", g, g_len[g], g_i[g]); \
-				printf("\t");				\
-				for(k = 0; k < g_len[g]; k++)		\
-					printf(" %1d", h->idx[g_i[g] + k]); \
-				printf("\n");				\
-			}						\
-		}							\
-									\
-		h->g_n = ng;						\
-		h->g_i = g_i;						\
-		h->g_len = g_len;					\
-        }
-
-	RUN_CODE_BLOCK(nt, 0, 0);
-#undef CODE_BLOCK
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_free(GMRFLib_idx_tp * hold)
-{
-	if (hold) {
-		Free(hold->idx);
-		Free(hold);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_free(GMRFLib_idx2_tp * hold)
-{
-	if (hold) {
-		Free(hold->idx[0]);
-		Free(hold->idx[1]);
-		Free(hold->idx);
-		Free(hold);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_free(GMRFLib_val_tp * hold)
-{
-	if (hold) {
-		Free(hold->val);
-		Free(hold);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_free(GMRFLib_idxval_tp * hold)
-{
-	if (hold) {
-		Free(hold->idx);
-		Free(hold->val);
-		Free(hold);
-	}
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx_add(GMRFLib_idx_tp ** hold, int idx)
-{
-	if (*hold == NULL) {
-		GMRFLib_idx_create(hold);
-	}
-	if ((*hold)->n == (*hold)->n_alloc) {
-		(*hold)->n_alloc += IMAX(IDX_ALLOC_ADD, (*hold)->n / 4);
-		(*hold)->idx = Realloc((*hold)->idx, (*hold)->n_alloc, int);
-	}
-	(*hold)->idx[(*hold)->n] = idx;
-	(*hold)->n++;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idx2_add(GMRFLib_idx2_tp ** hold, int idx0, int idx1)
-{
-	if (*hold == NULL) {
-		GMRFLib_idx2_create(hold);
-	}
-	if ((*hold)->n == (*hold)->n_alloc) {
-		(*hold)->n_alloc += IMAX(IDX_ALLOC_ADD, (*hold)->n / 4);
-		(*hold)->idx[0] = Realloc((*hold)->idx[0], (*hold)->n_alloc, int);
-		(*hold)->idx[1] = Realloc((*hold)->idx[1], (*hold)->n_alloc, int);
-	}
-	(*hold)->idx[0][(*hold)->n] = idx0;
-	(*hold)->idx[1][(*hold)->n] = idx1;
-	(*hold)->n++;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_val_add(GMRFLib_val_tp ** hold, double val)
-{
-	if (*hold == NULL) {
-		GMRFLib_val_create(hold);
-	}
-	if ((*hold)->n == (*hold)->n_alloc) {
-		(*hold)->n_alloc += IMAX(IDX_ALLOC_ADD, (*hold)->n / 4);
-		(*hold)->val = Realloc((*hold)->val, (*hold)->n_alloc, double);
-	}
-	(*hold)->val[(*hold)->n] = val;
-	(*hold)->n++;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_add(GMRFLib_idxval_tp ** hold, int idx, double val)
-{
-	if (*hold == NULL) {
-		GMRFLib_idxval_create(hold);
-	}
-	if ((*hold)->n == (*hold)->n_alloc) {
-		(*hold)->n_alloc += IMAX(IDX_ALLOC_ADD, (*hold)->n / 4);
-		(*hold)->idx = Realloc((*hold)->idx, (*hold)->n_alloc, int);
-		(*hold)->val = Realloc((*hold)->val, (*hold)->n_alloc, double);
-	}
-	(*hold)->idx[(*hold)->n] = idx;
-	(*hold)->val[(*hold)->n] = val;
-	(*hold)->n++;
-
-	return GMRFLib_SUCCESS;
-}
-
-forceinline int GMRFLib_idxval_addto(GMRFLib_idxval_tp ** hold, int idx, double val)
-{
-	// if idx exists before, add val to value , otherwise just 'add'.
-	// if there are two entries of 'idx', then only the first is used.
-
-	if (*hold == NULL) {
-		GMRFLib_idxval_create(hold);
-	}
-
-	int i;
-
-	// hopefully this is it.
-	i = (*hold)->iaddto;
-	if ((*hold)->idx[i] == idx) {
-		(*hold)->val[i] += val;
-		return GMRFLib_SUCCESS;
-	}
-	// FIXME: this should be improved in general, but I think for the usage its ok. Since we are likely to add with same or increasing idx,
-	// then I added this 'iaddto' which recall the last index, and try to be a little smarter.
-	for (i = (*hold)->iaddto + 1; i < (*hold)->n; i++) {
-		if ((*hold)->idx[i] == idx) {
-			(*hold)->val[i] += val;
-			(*hold)->iaddto = i;
-			return GMRFLib_SUCCESS;
-		}
-	}
-	for (i = 0; i < (*hold)->iaddto; i++) {
-		if ((*hold)->idx[i] == idx) {
-			(*hold)->val[i] += val;
-			(*hold)->iaddto = i;
-			return GMRFLib_SUCCESS;
-		}
-	}
-
-	if ((*hold)->n == (*hold)->n_alloc) {
-		(*hold)->n_alloc += IMAX(IDX_ALLOC_ADD, (*hold)->n / 4);
-		(*hold)->idx = Realloc((*hold)->idx, (*hold)->n_alloc, int);
-		(*hold)->val = Realloc((*hold)->val, (*hold)->n_alloc, double);
-	}
-	(*hold)->idx[(*hold)->n] = idx;
-	(*hold)->val[(*hold)->n] = val;
-	(*hold)->n++;
-
-	return GMRFLib_SUCCESS;
-}
-
-#undef MEMINFO
-#undef IDX_ALLOC_ADD
-#undef IDX_ALLOC_INITIAL
-
-/////////////////////////////////////////////////////////////////////////
-
 int GMRFLib_adjust_vector(double *x, int n)
 {
 	/*
@@ -1691,6 +1069,7 @@ int GMRFLib_adjust_vector(double *x, int n)
 	}
 
 	max_value = GMRFLib_max_value(x, n, NULL);
+#pragma GCC ivdep
 	for (i = 0; i < n; i++) {
 		x[i] -= max_value;
 	}
@@ -1703,19 +1082,14 @@ int GMRFLib_scale_vector(double *x, int n)
 	/*
 	 * x := x/max(x)
 	 */
-	int i;
-	double scale;
-
 	if (n <= 0 || !x) {
 		return GMRFLib_SUCCESS;
 	}
 
-	scale = GMRFLib_max_value(x, n, NULL);
+	double scale = GMRFLib_max_value(x, n, NULL);
 	if (!ISZERO(scale)) {
 		scale = 1.0 / scale;
-		for (i = 0; i < n; i++) {
-			x[i] *= scale;
-		}
+		GMRFLib_dscale(n, scale, x);
 	}
 
 	return GMRFLib_SUCCESS;
@@ -1812,7 +1186,29 @@ int GMRFLib_imax_value(int *x, int n, int *idx)
 	return max_val;
 }
 
-const char *GMRFLib_debug_functions_strip(const char *name)
+double GMRFLib_logit(double p)
+{
+	// evaluate log(p/(1-p)) more safe than just log(p/(1-p))
+	const double lim = 0.01;
+
+	if (p > lim && p < 1.0 - lim) {
+		return log(p / (1.0 - p));
+	} else if (p < 0.5) {
+		return (log(p) - log1p(-p));
+	} else {
+		double pp = 1.0 - p;
+		return (-log(pp) + log1p(-pp));
+	}
+}
+
+double GMRFLib_inv_logit(double x)
+{
+	// evaluate 1/(1+exp(-x))
+
+	return 1.0 / (2.0 + expm1(-x));
+}
+
+const char *GMRFLib_function_name_strip(const char *name)
 {
 	char *s = (char *) name;
 	if (!strncmp("GMRFLib_", s, 8)) {
@@ -1831,16 +1227,25 @@ int GMRFLib_debug_functions(const char *name)
 		return 0;
 	}
 
-	static int first = 1;
-#pragma omp threadprivate(first)
+	static map_stri **ddefs = NULL;
+	static int *first = NULL;
 
-	static map_stri *defs = NULL;
-#pragma omp threadprivate(defs)
+	if (!ddefs) {
+#pragma omp critical (Name_30c48b516c7b1cce1be137af0e429a5e3b52a645)
+		{
+			if (!ddefs) {
+				first = Calloc(GMRFLib_CACHE_LEN, int);
+				ddefs = Calloc(GMRFLib_CACHE_LEN, map_stri *);
+			}
+		}
+	}
+	int idx = 0;
+	GMRFLib_CACHE_SET_ID(idx);
 
-	if (first == 1) {
+	if (!ddefs[idx]) {
 		// format FUN[:N],...
 		// prefix's GMRFLib_ and inla_ are removed automatically
-		char *def = getenv("INLA_TRACE");
+		char *def = getenv("INLA_DEBUG");
 		int verbose = 0;
 
 		if (def) {
@@ -1852,23 +1257,22 @@ int GMRFLib_debug_functions(const char *name)
 
 		if (!def) {
 			not_defined = 1;
-			first = 0;
 			return 0;
 		} else {
 			char sep1[] = ",";
 
-			defs = Calloc(1, map_stri);
-			map_stri_init_hint(defs, 128);
+			ddefs[idx] = Calloc(1, map_stri);
+			map_stri_init_hint(ddefs[idx], 128);
 			char *str = def;
 			char *s;
 
-			first = -1;
+			first[idx] = -1;
 			while ((s = strtok(str, sep1))) {
 				str = NULL;
 
 				int val = 0;
 				char *s2 = strchr(s, ':');
-				char *ss, *sss;
+				char *ss;
 				if (!s2) {
 					ss = s;
 					val = 1;
@@ -1885,27 +1289,482 @@ int GMRFLib_debug_functions(const char *name)
 					ss++;
 				// special option that override all others
 				if (!strcmp(ss, "*")) {
-					first = 2;
+					first[idx] = 2;
 				}
 
-				sss = (char *) GMRFLib_debug_functions_strip((const char *) ss);
 				char *nm = NULL;
 				if (strlen(ss)) {
-					GMRFLib_sprintf(&nm, "%s", sss);
-					map_stri_set(defs, nm, val);
+					GMRFLib_sprintf(&nm, "%s", ss);
+					map_stri_set(ddefs[idx], nm, val);
 				}
-				if (first != 2) {
-					first = 0;
+				if (first[idx] != 2) {
+					first[idx] = 0;
 				}
 
 				if (verbose) {
-					printf("\t\t[%1d] debug init: ADD [%s]=%1d\n", omp_get_thread_num(), sss, val);
+					printf("\t\t[%1d] debug init: ADD [%s]=%1d\n", omp_get_thread_num(), ss, val);
 				}
 			}
 		}
 	}
 
-	int *p = map_stri_ptr(defs, (char *) (first == 2 ? "*" : GMRFLib_debug_functions_strip(name)));
+	if (!name) {
+		return 0;
+	} else {
+		int *p = map_stri_ptr(ddefs[idx], (char *) (first[idx] == 2 ? "*" : name));
+		return (p ? *p : 0);
+	}
+}
 
-	return (p ? *p : 0);
+int GMRFLib_trace_functions(const char *name)
+{
+	static int not_defined = 0;
+	if (not_defined) {
+		return 0;
+	}
+
+	static map_stri **ddefs = NULL;
+	static int *first = NULL;
+
+	if (!ddefs) {
+#pragma omp critical (Name_3a266edf254a33111bcf4ab49b3acc5833850a29)
+		{
+			if (!ddefs) {
+				first = Calloc(GMRFLib_CACHE_LEN, int);
+				ddefs = Calloc(GMRFLib_CACHE_LEN, map_stri *);
+			}
+		}
+	}
+	int idx = 0;
+	GMRFLib_CACHE_SET_ID(idx);
+
+	if (!ddefs[idx]) {
+		// format FUN[:N],...
+		// prefix's GMRFLib_ and inla_ are removed automatically
+		char *def = getenv("INLA_TRACE");
+		int verbose = 0;
+
+		if (def) {
+			def = GMRFLib_strdup(def);
+		}
+		if (verbose) {
+			printf("\t\tREAD %s\n", def);
+		}
+
+		if (!def) {
+			not_defined = 1;
+			return 0;
+		} else {
+			char sep1[] = ",";
+
+			ddefs[idx] = Calloc(1, map_stri);
+			map_stri_init_hint(ddefs[idx], 128);
+			char *str = def;
+			char *s;
+
+			first[idx] = -1;
+			while ((s = strtok(str, sep1))) {
+				str = NULL;
+
+				int val = 0;
+				char *s2 = strchr(s, ':');
+				char *ss;
+				if (!s2) {
+					ss = s;
+					val = 1;
+				} else {
+					int len = s2 - s + 1;
+					ss = Calloc(len + 1, char);
+					ss[len] = '\0';
+					strncpy(ss, s, len - 1);
+					val = atoi(s2 + 1);
+					val = IMAX(val, 1);
+				}
+				// strip leading whitespace
+				while (!strncmp(ss, " ", 1))
+					ss++;
+				// special option that override all others
+				if (!strcmp(ss, "*")) {
+					first[idx] = 2;
+				}
+
+				char *nm = NULL;
+				if (strlen(ss)) {
+					GMRFLib_sprintf(&nm, "%s", ss);
+					map_stri_set(ddefs[idx], nm, val);
+				}
+				if (first[idx] != 2) {
+					first[idx] = 0;
+				}
+
+				if (verbose) {
+					printf("\t\t[%1d] debug init: ADD [%s]=%1d\n", omp_get_thread_num(), ss, val);
+				}
+			}
+		}
+	}
+
+	if (!name) {
+		return 0;
+	} else {
+		int *p = map_stri_ptr(ddefs[idx], (char *) (first[idx] == 2 ? "*" : name));
+		return (p ? *p : 0);
+	}
+}
+
+// ******************************************************************************************
+
+int GMRFLib_vmatrix_init(GMRFLib_vmatrix_tp ** vmatrix, int nrow, GMRFLib_graph_tp * graph)
+{
+	// graph is optional. If given, the initialise with lnnbs+1
+
+	*vmatrix = Calloc(1, GMRFLib_vmatrix_tp);
+	(*vmatrix)->nrow = nrow;
+	(*vmatrix)->vmat = Calloc(nrow, map_ivp);
+	if (graph) {
+		for (int i = 0; i < nrow; i++) {
+			map_ivp_init_hint(&((*vmatrix)->vmat[i]), (mapkit_size_t) (graph->lnnbs[i] + 1));
+		}
+	} else {
+		for (int i = 0; i < nrow; i++) {
+			map_ivp_init(&((*vmatrix)->vmat[i]));
+		}
+	}
+
+	return GMRFLib_SUCCESS;
+}
+
+int GMRFLib_vmatrix_set(GMRFLib_vmatrix_tp * vmatrix, int i, int j, double *vec)
+{
+	map_ivp_set(&(vmatrix->vmat[i]), j, (void *) vec);
+	return GMRFLib_SUCCESS;
+}
+
+double *GMRFLib_vmatrix_get(GMRFLib_vmatrix_tp * vmatrix, int i, int j)
+{
+	void *p = NULL;
+	map_ivp_get(&(vmatrix->vmat[i]), j, &p);
+	return ((double *) p);
+}
+
+int GMRFLib_vmatrix_free(GMRFLib_vmatrix_tp * vmatrix, int free_content)
+{
+	if (free_content) {
+		for (int i = 0; i < vmatrix->nrow; i++) {
+			for (int j = -1; (j = map_ivp_next(&(vmatrix->vmat[i]), j)) != -1;) {
+				Free(vmatrix->vmat[i].contents[j].value);
+			}
+		}
+	}
+
+	for (int i = 0; i < vmatrix->nrow; i++) {
+		map_ivp_free((map_ivp *) & (vmatrix->vmat[i]));
+	}
+
+	Free(vmatrix->vmat);
+	Free(vmatrix);
+
+	return GMRFLib_SUCCESS;
+}
+
+// ****************************************************************************************
+
+/*
+ * Implement Heap sort -- direct and indirect sorting
+ * Based on descriptions in Sedgewick "Algorithms in C"
+ *
+ * Copyright (C) 1999  Thomas Walter
+ *
+ * 18 February 2000: Modified for GSL by Brian Gough
+ *
+ * This is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 3, or (at your option) any
+ * later version.
+ *
+ * This source is distributed in the hope that it will be useful, but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * for more details.
+ */
+
+void my_downheap2_id(int *__restrict data1, double *__restrict data2, const int N, int k)
+{
+	int v1 = data1[k];
+	double v2 = data2[k];
+
+	while (k <= N / 2) {
+		int j = 2 * k;
+		if (j < N && data1[j] < data1[j + 1]) {
+			j++;
+		}
+
+		if (!(v1 < data1[j])) {
+			break;
+		}
+
+		data1[k] = data1[j];
+		data2[k] = data2[j];
+		k = j;
+	}
+	data1[k] = v1;
+	data2[k] = v2;
+}
+
+void gsl_sort2_id(int *__restrict data1, double *__restrict data2, const int n)
+{
+	int N, k;
+
+	if (n == 0) {
+		return;					       /* No data to sort */
+	}
+
+	/*
+	 * We have n_data elements, last element is at 'n_data-1', first at '0' Set N to the last element number. 
+	 */
+
+	N = n - 1;
+	k = N / 2;
+	k++;						       /* Compensate the first use of 'k--' */
+	do {
+		k--;
+		my_downheap2_id(data1, data2, N, k);
+	} while (k > 0);
+
+	while (N > 0) {
+		int tmp1 = data1[0];
+		data1[0] = data1[N];
+		data1[N] = tmp1;
+
+		double tmp2 = data2[0];
+		data2[0] = data2[N];
+		data2[N] = tmp2;
+
+		/*
+		 * then process the heap 
+		 */
+		N--;
+		my_downheap2_id(data1, data2, N, 0);
+	}
+}
+
+void my_downheap2_ii(int *__restrict data1, int *__restrict data2, const int N, int k)
+{
+	int v1 = data1[k];
+	int v2 = data2[k];
+
+	while (k <= N / 2) {
+		int j = 2 * k;
+		if (j < N && data1[j] < data1[j + 1]) {
+			j++;
+		}
+
+		if (!(v1 < data1[j])) {
+			break;
+		}
+
+		data1[k] = data1[j];
+		data2[k] = data2[j];
+		k = j;
+	}
+	data1[k] = v1;
+	data2[k] = v2;
+}
+
+void gsl_sort2_ii(int *__restrict data1, int *__restrict data2, const int n)
+{
+	int N, k;
+
+	if (n == 0) {
+		return;					       /* No data to sort */
+	}
+
+	/*
+	 * We have n_data elements, last element is at 'n_data-1', first at '0' Set N to the last element number. 
+	 */
+
+	N = n - 1;
+	k = N / 2;
+	k++;						       /* Compensate the first use of 'k--' */
+	do {
+		k--;
+		my_downheap2_ii(data1, data2, N, k);
+	} while (k > 0);
+
+	while (N > 0) {
+		int tmp1 = data1[0];
+		data1[0] = data1[N];
+		data1[N] = tmp1;
+
+		int tmp2 = data2[0];
+		data2[0] = data2[N];
+		data2[N] = tmp2;
+
+		/*
+		 * then process the heap 
+		 */
+		N--;
+		my_downheap2_ii(data1, data2, N, 0);
+	}
+}
+
+void my_insertionSort_id(int *__restrict iarr, double *__restrict darr, int n)
+{
+	if (darr) {
+		for (int i = 1; i < n; i++) {
+			int key = iarr[i];
+			double dkey = darr[i];
+			int j = i - 1;
+			while (j >= 0 && iarr[j] > key) {
+				iarr[j + 1] = iarr[j];
+				darr[j + 1] = darr[j];
+				j--;
+			}
+			iarr[j + 1] = key;
+			darr[j + 1] = dkey;
+		}
+	} else {
+		for (int i = 1; i < n; i++) {
+			int key = iarr[i];
+			int j = i - 1;
+			while (j >= 0 && iarr[j] > key) {
+				iarr[j + 1] = iarr[j];
+				j--;
+			}
+			iarr[j + 1] = key;
+		}
+	}
+}
+
+void my_insertionSort_ii(int *__restrict iarr, int *__restrict darr, int n)
+{
+	if (darr) {
+		for (int i = 1; i < n; i++) {
+			int key = iarr[i];
+			int dkey = darr[i];
+			int j = i - 1;
+			while (j >= 0 && iarr[j] > key) {
+				iarr[j + 1] = iarr[j];
+				darr[j + 1] = darr[j];
+				j--;
+			}
+			iarr[j + 1] = key;
+			darr[j + 1] = dkey;
+		}
+	} else {
+		for (int i = 1; i < n; i++) {
+			int key = iarr[i];
+			int j = i - 1;
+			while (j >= 0 && iarr[j] > key) {
+				iarr[j + 1] = iarr[j];
+				j--;
+			}
+			iarr[j + 1] = key;
+		}
+	}
+}
+
+void my_sort2_ii(int *__restrict ix, int *__restrict x, int n)
+{
+	if (n < GMRFLib_sort2_cut_off) {
+		my_insertionSort_ii(ix, x, n);
+	} else {
+		gsl_sort2_ii(ix, x, n);
+	}
+}
+
+void my_sort2_id(int *__restrict ix, double *__restrict x, int n)
+{
+	if (n < GMRFLib_sort2_cut_off) {
+		my_insertionSort_id(ix, x, n);
+	} else {
+		gsl_sort2_id(ix, x, n);
+	}
+}
+
+int my_sort2_test_cutoff(int verbose)
+{
+	const int nmax = 384;
+	const int nmin = 64;
+	const int nstep = 64;
+	const int ntimes = 200;
+
+	double time_used = 0.0;
+	int *ix = Calloc(2 * nmax, int);
+	double *x = Calloc(2 * nmax, double);
+
+	double slope_xy = 0.0;
+	double slope_xx = 0.0;
+	double slope_x = 0.0;
+	double slope_y = 0.0;
+	double slope_n = 0.0;
+	double cutoff = 1;
+	double b;
+
+	time_used -= GMRFLib_cpu();
+
+	for (int n = nmin; n <= nmax; n += nstep) {
+
+		int *ixx = ix + nmax;
+		double *xx = x + nmax;
+		double time[2] = { 0.0, 0.0 };
+
+		for (int times = -2; times < ntimes; times++) {
+
+			for (int i = 0; i < n; i++) {
+				ix[i] = (int) ((100 * nmax) * GMRFLib_uniform());
+				x[i] = GMRFLib_uniform();
+			}
+
+			Memcpy(ixx, ix, n * sizeof(int));
+			Memcpy(xx, x, n * sizeof(double));
+			if (times > 0) {
+				time[0] -= GMRFLib_cpu();
+			}
+			my_insertionSort_id(ixx, xx, n);
+
+			if (times > 0) {
+				time[0] += GMRFLib_cpu();
+			}
+
+			Memcpy(ixx, ix, n * sizeof(int));
+			Memcpy(xx, x, n * sizeof(double));
+			if (times > 0) {
+				time[1] -= GMRFLib_cpu();
+			}
+			gsl_sort2_id(ixx, xx, n);
+
+			if (times > 0) {
+				time[1] += GMRFLib_cpu();
+			}
+		}
+
+		slope_xx += SQR(n);
+		slope_xy += n * (time[0] / time[1]);
+		slope_x += n;
+		slope_y += (time[0] / time[1]);
+		slope_n++;
+
+		b = (slope_xy / slope_n - (slope_x / slope_n) * (slope_y / slope_n)) / (slope_xx / slope_n - SQR(slope_x / slope_n));
+		if (ISZERO(b))
+			b = 1.0;
+		cutoff = (slope_x / slope_n) + (1.0 - (slope_y / slope_n)) / b;
+
+		if (verbose) {
+			printf("sort-test n = %1d  time(insertSort/gsl_sort2) =  %.2f cutoff.est = %1d\n", n, time[0] / time[1], (int) cutoff);
+		}
+	}
+
+	// this is a global variable
+	GMRFLib_sort2_cut_off = IMAX(nmin, IMIN(nmax, (int) cutoff));
+
+	time_used += GMRFLib_cpu();
+	if (verbose) {
+		printf("sort-test took %.4f seconds\n", time_used);
+	}
+
+	Free(ix);
+	Free(x);
+
+	return GMRFLib_sort2_cut_off;
 }

@@ -433,8 +433,8 @@
     random.spec$hyper <- inla.write.hyper(random.spec$hyper, file, data.dir = data.dir, ngroup = ngroup, low = low, high = high)
 
     if (inla.model.properties(random.spec$model, "latent")$nrow.ncol) {
-        cat("nrow = ", random.spec$nrow, "\n", sep = " ", file = file, append = TRUE)
-        cat("ncol = ", random.spec$ncol, "\n", sep = " ", file = file, append = TRUE)
+        cat("nrow = ", as.integer(random.spec$nrow), "\n", sep = " ", file = file, append = TRUE)
+        cat("ncol = ", as.integer(random.spec$ncol), "\n", sep = " ", file = file, append = TRUE)
 
         if (!is.null(random.spec$bvalue)) {
             cat("bvalue = ", random.spec$bvalue, "\n", sep = " ", file = file, append = TRUE)
@@ -445,9 +445,9 @@
             }
         }
     } else {
-        cat("n = ", n, "\n", sep = " ", file = file, append = TRUE)
+        cat("n = ", as.integer(n), "\n", sep = " ", file = file, append = TRUE)
     }
-    cat("nrep = ", inla.ifelse(is.null(nrep), 1, nrep), "\n", sep = " ", file = file, append = TRUE)
+    cat("nrep = ", inla.ifelse(is.null(nrep), 1, as.integer(nrep)), "\n", sep = " ", file = file, append = TRUE)
 
     if (!is.null(ngroup) && ngroup > 1) {
         cat("ngroup = ", ngroup, "\n", sep = " ", file = file, append = TRUE)
@@ -526,8 +526,8 @@
         ))
 
         ## dimensions
-        cat("z.n = ", Z.n, "\n", append = TRUE, sep = " ", file = file)
-        cat("z.m = ", Z.m, "\n", append = TRUE, sep = " ", file = file)
+        cat("z.n = ", as.integer(Z.n), "\n", append = TRUE, sep = " ", file = file)
+        cat("z.m = ", as.integer(Z.m), "\n", append = TRUE, sep = " ", file = file)
         ## matrix A
         file.A <- inla.tempfile(tmpdir = data.dir)
         inla.write.fmesher.file(A, filename = file.A)
@@ -553,8 +553,8 @@
         ## f()
         nC <- length(random.spec$Cmatrix)
         stopifnot(nC > 0L)
-        cat("generic3.n = ", random.spec$n, "\n", append = TRUE, sep = "", file = file)
-        cat("generic3.m = ", nC, "\n", append = TRUE, sep = "", file = file)
+        cat("generic3.n = ", as.integer(random.spec$n), "\n", append = TRUE, sep = "", file = file)
+        cat("generic3.m = ", as.integer(nC), "\n", append = TRUE, sep = "", file = file)
         for (k in 1L:nC) {
             file.A <- inla.tempfile(tmpdir = data.dir)
             inla.write.fmesher.file(inla.as.sparse(random.spec$Cmatrix[[k]]), filename = file.A)
@@ -586,10 +586,10 @@
         slm.n <- dim(X)[1L]
         slm.m <- dim(X)[2L]
 
-        cat("slm.n = ", slm.n, "\n", append = TRUE, sep = " ", file = file)
-        cat("slm.m = ", slm.m, "\n", append = TRUE, sep = " ", file = file)
-        cat("slm.rho.min = ", random.spec$args.slm$rho.min, "\n", append = TRUE, sep = " ", file = file)
-        cat("slm.rho.max = ", random.spec$args.slm$rho.max, "\n", append = TRUE, sep = " ", file = file)
+        cat("slm.n = ", as.integer(slm.n), "\n", append = TRUE, sep = " ", file = file)
+        cat("slm.m = ", as.integer(slm.m), "\n", append = TRUE, sep = " ", file = file)
+        cat("slm.rho.min = ", as.integer(random.spec$args.slm$rho.min), "\n", append = TRUE, sep = " ", file = file)
+        cat("slm.rho.max = ", as.integer(random.spec$args.slm$rho.max), "\n", append = TRUE, sep = " ", file = file)
 
         ## matrix A1
         A1 <- cbind(
@@ -662,8 +662,8 @@
         ar1c.n <- dim(Z)[1L]
         ar1c.m <- dim(Z)[2L]
 
-        cat("ar1c.n = ", ar1c.n, "\n", append = TRUE, sep = " ", file = file)
-        cat("ar1c.m = ", ar1c.m, "\n", append = TRUE, sep = " ", file = file)
+        cat("ar1c.n = ", as.integer(ar1c.n), "\n", append = TRUE, sep = " ", file = file)
+        cat("ar1c.m = ", as.integer(ar1c.m), "\n", append = TRUE, sep = " ", file = file)
 
         ## matrix Z
         Z[ar1c.n, ] <- 0 ## not used
@@ -785,7 +785,7 @@
         shlib <- gsub(data.dir, "$inladatadir", shlib, fixed = TRUE)
         cat("cgeneric.shlib =", shlib, "\n", file = file, append = TRUE)
         cat("cgeneric.model =", random.spec$cgeneric$model$model, "\n", file = file, append = TRUE)
-        cat("cgeneric.n =", random.spec$cgeneric$model$n, "\n", file = file, append = TRUE)
+        cat("cgeneric.n =", as.integer(random.spec$cgeneric$model$n), "\n", file = file, append = TRUE)
         inla.write.boolean.field("cgeneric.debug", random.spec$cgeneric$model$debug, file)
         inla.write.boolean.field("cgeneric.q", random.spec$cgeneric$model$.q, file)
         if (!is.null(random.spec$cgeneric$model$.q) && random.spec$cgeneric$model$.q) {
@@ -845,10 +845,17 @@
         cat("order = ", random.spec$order, "\n", append = TRUE, sep = " ", file = file)
     }
 
-    if (is.null(random.spec$vb.correct)) {
+    if (is.numeric(random.spec$vb.correct)) {
+        ## convert from R to C
+        random.spec$vb.correct <- random.spec$vb.correct - 1
+        stopifnot(all(random.spec$vb.correct >= 0))
+    } else if (as.logical(random.spec$vb.correct) == TRUE) {
         random.spec$vb.correct <- -1L ## code for ``make the default choice''
+    } else if (as.logical(random.spec$vb.correct) == FALSE) {
+        random.spec$vb.correct <- -2L ## code for disable
     }
-    cat("vb.correct = ", as.numeric(random.spec$vb.correct), "\n", append = TRUE, sep = "", file = file)
+
+    cat("vb.correct = ", sort(as.numeric(random.spec$vb.correct)), "\n", append = TRUE, sep = " ", file = file)
     cat("\n", sep = " ", file = file, append = TRUE)
 
     ## need to store the updated one
@@ -1050,11 +1057,28 @@
     }
     inla.write.boolean.field("control.vb.enable", inla.spec$control.vb$enable, file)
     inla.write.boolean.field("control.vb.verbose", inla.spec$control.vb$verbose, file)
-    inla.write.boolean.field("control.vb.hyperpar.correct", inla.spec$control.vb$hyperpar.correct, file)
-    cat("control.vb.strategy = ", inla.spec$control.vb$strategy, "\n", file = file, append = TRUE)
-    cat("control.vb.refinement = ", inla.spec$control.vb$refinement, "\n", file = file, append = TRUE)
-    cat("control.vb.max.correct = ", inla.spec$control.vb$max.correct, "\n", file = file, append = TRUE)
-    cat("control.vb.f.enable.limit = ", inla.spec$control.vb$f.enable.limit, "\n", file = file, append = TRUE)
+
+    strategy <- match.arg(tolower(inla.spec$control.vb$strategy),
+                          choices = tolower(inla.set.control.inla.default()$control.vb$strategy),
+                          several.ok = FALSE)
+    cat("control.vb.strategy = ", strategy, "\n", file = file, append = TRUE)
+    cat("control.vb.hessian.update = ", max(1, round(inla.spec$control.vb$hessian.update)), "\n", file = file, append = TRUE)
+
+    choices <- tolower(inla.set.control.inla.default()$control.vb$hessian.strategy)
+    stopifnot(choices[1] == "default")
+    hessian.strategy <- match.arg(tolower(inla.spec$control.vb$hessian.strategy), choices = choices, several.ok = FALSE)
+    if (hessian.strategy == "default") {
+        hessian.strategy <- choices[2]
+    }
+    cat("control.vb.hessian.strategy = ", hessian.strategy, "\n", file = file, append = TRUE)
+
+    lim <- inla.spec$control.vb$f.enable.limit
+    if (length(lim) == 1) lim <- c(lim[1], ceiling(sqrt(lim[1])))
+    cat("control.vb.f.enable.limit.mean = ", lim[1], "\n", file = file, append = TRUE)
+    cat("control.vb.f.enable.limit.variance = ", lim[2], "\n", file = file, append = TRUE)
+    cat("control.vb.iter.max = ", inla.spec$control.vb$iter.max, "\n", file = file, append = TRUE)
+    cat("control.vb.emergency = ", abs(inla.spec$control.vb$emergency), "\n", file = file, append = TRUE)
+    stopifnot(abs(inla.spec$control.vb$emergency) > 0)
 
     num.gradient <- match.arg(tolower(inla.spec$num.gradient), c("central", "forward"))
     num.hessian <- match.arg(tolower(inla.spec$num.hessian), c("central", "forward"))
@@ -1080,6 +1104,7 @@
 
     inla.write.boolean.field("improved.simplified.laplace", inla.spec$improved.simplified.laplace, file)
     inla.write.boolean.field("parallel.linesearch", inla.spec$parallel.linesearch, file)
+    inla.write.boolean.field("compute.initial.values", inla.spec$compute.initial.values, file)
     
     cat("\n", sep = " ", file = file, append = TRUE)
 }
@@ -1091,8 +1116,8 @@
     cat(inla.secsep("Predictor"), "\n", sep = " ", file = file, append = TRUE)
     cat("type = predictor\n", sep = " ", file = file, append = TRUE)
     cat("dir = predictor\n", sep = " ", file = file, append = TRUE)
-    cat("n = ", n, "\n", sep = " ", file = file, append = TRUE)
-    cat("m = ", m, "\n", sep = " ", file = file, append = TRUE)
+    cat("n = ", as.integer(n), "\n", sep = " ", file = file, append = TRUE)
+    cat("m = ", as.integer(m), "\n", sep = " ", file = file, append = TRUE)
 
     inla.write.boolean.field("fixed", predictor.spec$fixed, file)
     inla.write.boolean.field("compute", predictor.spec$compute, file)
@@ -1163,9 +1188,7 @@
         cat("AextPrecision = ", predictor.spec$precision, "\n", append = TRUE, sep = " ", file = file)
     }
 
-    inla.write.boolean.field("vb.correct", predictor.spec$vb.correct, file)
-
-   cat("\n", sep = " ", file = file, append = TRUE)
+    cat("\n", sep = " ", file = file, append = TRUE)
 }
 
 `inla.lp.scale.section` <- function(file, contr, data.dir, write.hyper = TRUE) {
@@ -1219,7 +1242,24 @@
 
     inla.write.boolean.field("gcpo.enable", gcpo$enable, file)
     inla.write.boolean.field("gcpo.verbose", gcpo$verbose, file)
+    inla.write.boolean.field("gcpo.correct.hyperpar", gcpo$correct.hyperpar, file)
+    inla.write.boolean.field("gcpo.remove.fixed", gcpo$remove.fixed, file)
     cat("gcpo.epsilon =", max(0, gcpo$epsilon), "\n", file = file, append = TRUE)
+    cat("gcpo.prior.diagonal =", max(0, gcpo$prior.diagonal), "\n", file = file, append = TRUE)
+
+    if (!is.null(gcpo$keep) && !is.null(gcpo$remove)) {
+        stop("control.gcpo$keep and $remove cannot be used at the same time.")
+    }
+    if (!is.null(gcpo$keep)) {
+        cat("gcpo.keep =", paste(gcpo$keep, collapse = " ", sep = ""), "\n", file = file, append = TRUE)
+    }
+    if (!is.null(gcpo$remove)) {
+        cat("gcpo.remove =", paste(gcpo$remove, collapse = " ", sep = ""), "\n", file = file, append = TRUE)
+    }
+
+    gcpo$strategy <- match.arg(gcpo$strategy, several.ok = FALSE, 
+                               choices = inla.set.control.compute.default()$control.gcpo$strategy)
+    cat("gcpo.strategy =", gcpo$strategy, "\n", file = file, append = TRUE)
 
     if (!is.null(gcpo$groups)) {
         stopifnot(is.list(gcpo$groups) && length(gcpo$groups) > 0)
@@ -1244,7 +1284,7 @@
                 ## back to C indexing
                 writeBin(as.integer(g - 1), fp.binary)
                 if (!(i %in% g)) {
-                    stop(paste0("Node ", i,  "is not in group ",  i,  ". This is not supported."))
+                    stop(paste0("Node ", i,  " is not in group ",  i,  ". This is not supported."))
                 }
             }
         }
@@ -1252,21 +1292,29 @@
         fnm <- gsub(data.dir, "$inladatadir", file.groups, fixed = TRUE)
         cat("gcpo.groups =", fnm, "\n", file = file, append = TRUE)
     } else {
-            cat("gcpo.group.size", "=", max(1, round(gcpo$group.size)), "\n", sep = " ", file = file, append = TRUE)
-            if (!is.null(gcpo$selection)) {
-                selection <- gcpo$selection[!is.na(gcpo$selection)]
-                selection <- unique(sort(selection))
-                stopifnot(all(selection >= 1))
-                selection <- selection - 1 ## to C indexing
-                len <- length(selection)
-                file.selection <- inla.tempfile(tmpdir = data.dir)
-                fp.binary <- file(file.selection, "wb")
-                writeBin(as.integer(len), fp.binary)
-                writeBin(as.integer(selection), fp.binary)
-                close(fp.binary)
-                fnm <- gsub(data.dir, "$inladatadir", file.selection, fixed = TRUE)
-                cat("gcpo.selection =", fnm, "\n", file = file, append = TRUE)
-            }
+        ## gsiz = -1 is CPO,  gsiz = 0 or gsiz < -1 means the default value 1
+        gsiz <- round(gcpo$num.level.sets)
+        if (gsiz <= 0) gsiz <- -1
+        cat("gcpo.num.level.sets", "=", gsiz, "\n", sep = " ", file = file, append = TRUE)
+
+        gsiz.max <- round(gcpo$size.max)
+        if (gsiz.max <= 0) gsiz.max <- -1
+        cat("gcpo.size.max", "=", gsiz.max, "\n", sep = " ", file = file, append = TRUE)
+
+        if (!is.null(gcpo$selection)) {
+            selection <- gcpo$selection[!is.na(gcpo$selection)]
+            selection <- unique(sort(selection))
+            stopifnot(all(selection >= 1))
+            selection <- selection - 1 ## to C indexing
+            len <- length(selection)
+            file.selection <- inla.tempfile(tmpdir = data.dir)
+            fp.binary <- file(file.selection, "wb")
+            writeBin(as.integer(len), fp.binary)
+            writeBin(as.integer(selection), fp.binary)
+            close(fp.binary)
+            fnm <- gsub(data.dir, "$inladatadir", file.selection, fixed = TRUE)
+            cat("gcpo.selection =", fnm, "\n", file = file, append = TRUE)
+        }
     }
 
     if (is.null(smtp) || !(is.character(smtp) && (nchar(smtp) > 0))) {

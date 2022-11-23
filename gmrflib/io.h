@@ -43,6 +43,18 @@
 #include <malloc.h>
 #endif
 
+/* 
+   to define strtok_r()
+*/
+#if defined(__sun)
+#define __EXTENSIONS__
+#undef _STRING_H
+#include <string.h>
+#endif
+
+#include "GMRFLib/GMRFLib.h"
+#include "GMRFLib/GMRFLibP.h"
+
 #undef __BEGIN_DECLS
 #undef __END_DECLS
 #ifdef __cplusplus
@@ -53,16 +65,7 @@
 #define __END_DECLS					       /* empty */
 #endif
 
-__BEGIN_DECLS
 
-/* 
-   to define strtok_r()
-*/
-#if defined(__sun)
-#define __EXTENSIONS__
-#undef _STRING_H
-#include <string.h>
-#endif
 #define GMRFLib_IO_COMMENT_CHAR "#"
 #define GMRFLib_IO_SEP          " \t"
 
@@ -74,7 +77,8 @@ __BEGIN_DECLS
 #define GMRFLib_IO_ERR_READLINE   3
 #define GMRFLib_IO_ERR_READBYTES  4
 #define GMRFLib_IO_ERR_WRITEBYTES 5
-    typedef struct {
+
+__BEGIN_DECLS typedef struct {
 	char *filename;
 	char *mode;
 	char *strtok_ptr;
@@ -95,7 +99,6 @@ int GMRFLib_io_open(GMRFLib_io_tp ** io, const char *filename, const char *mode)
 int GMRFLib_io_seek(GMRFLib_io_tp * io, size_t offset, int whence);
 int GMRFLib_io_read_next(GMRFLib_io_tp * io, void *ptr, const char *fmt);
 int GMRFLib_io_strip_blanks(char *line);
-int GMRFLib_sprintf(char **ptr, const char *fmt, ...);
 int GMRFLib_io_read(GMRFLib_io_tp * io, void *buf, size_t len);
 int GMRFLib_io_write(GMRFLib_io_tp * io, const void *buf, size_t len);
 

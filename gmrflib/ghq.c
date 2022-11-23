@@ -70,16 +70,24 @@ int GMRFLib_ghq__intern(double *x, double *w, int n)
 	for (i = 1; i <= m; i++) {
 		switch (i) {
 		case 1:
+		{
 			z = sqrt(2.0 * n + 1.0) - 1.85575 * pow(2.0 * n + 1.0, -0.16667);
+		}
 			break;
 		case 2:
+		{
 			z -= 1.14 * pow((double) n, 0.426) / z;
+		}
 			break;
 		case 3:
+		{
 			z = 1.86 * z - 0.86 * x[1];
+		}
 			break;
 		case 4:
+		{
 			z = 1.91 * z - 0.91 * x[2];
+		}
 			break;
 		default:
 			z = 2.0 * z - x[i - 2];
@@ -128,11 +136,15 @@ int GMRFLib_ghq_ms(double **xp, double **wp, int n, double mean, double stdev)
 {
 	// the same for a given mean and stdev. Allocated new memory for xp and wp
 	int i;
-	double *xxp, *wwp;
+	double *xxp = NULL, *wwp = NULL;
 	GMRFLib_ghq(&xxp, &wwp, n);
+	assert(xxp);
+	assert(wwp);
 
 	*xp = Calloc(n, double);
 	*wp = Calloc(n, double);
+	assert(*xp);
+	assert(*wp);
 	for (i = 0; i < n; i++) {
 		(*xp)[i] = xxp[i] * stdev + mean;
 		(*wp)[i] = wwp[i];
@@ -151,29 +163,34 @@ int GMRFLib_ghq(double **xp, double **wp, int n)
 	 * an internal storage is used to store previously computed abscissas and weights 
 	 */
 
-	static map_ivp abscissas;			       /* keep previous computed elements here */
+	static map_ivp **abscissas = NULL;		       /* keep previous computed elements here */
+	static map_ivp **weights = NULL;		       /* keep previous computed elements here */
 
-#pragma omp threadprivate(abscissas)
-	static map_ivp weights;				       /* keep previous computed elements here */
+	if (!abscissas) {
+#pragma omp critical (Name_57dd787c76d8e98b908fbe47a9af2b183bc7a84a)
+		{
+			if (!abscissas) {
+				weights = Calloc(GMRFLib_CACHE_LEN, map_ivp *);
+				abscissas = Calloc(GMRFLib_CACHE_LEN, map_ivp *);
+			}
+		}
+	}
+	int idx = 0;
+	GMRFLib_CACHE_SET_ID(idx);
 
-#pragma omp threadprivate(weights)
-	static int first = 1;
-
-#pragma omp threadprivate(first)
+	if (!abscissas[idx]) {
+		abscissas[idx] = Calloc(1, map_ivp);
+		weights[idx] = Calloc(1, map_ivp);
+		map_ivp_init(abscissas[idx]);
+		map_ivp_init(weights[idx]);
+	}
 
 	int i;
 	double *x, *w;
 	void *ptr, *pptr;
 
 	GMRFLib_ASSERT(n > 0, GMRFLib_EINVARG);
-
-	if (first) {
-		first = 0;
-		map_ivp_init(&abscissas);		       /* init the hash-table */
-		map_ivp_init(&weights);			       /* init the hash-table */
-	}
-
-	if ((ptr = map_ivp_ptr(&abscissas, n))) {
+	if ((ptr = map_ivp_ptr(abscissas[idx], n))) {
 		/*
 		 * use previously computed. note that map_ivp_ptr returns a ptr to the stored ptr. 
 		 */
@@ -185,7 +202,7 @@ int GMRFLib_ghq(double **xp, double **wp, int n)
 		 * the weights should now be stored as well 
 		 */
 		if (wp) {
-			pptr = map_ivp_ptr(&weights, n);
+			pptr = map_ivp_ptr(weights[idx], n);
 			GMRFLib_ASSERT(pptr, GMRFLib_ESNH);
 			*wp = *((double **) pptr);
 		}
@@ -212,8 +229,8 @@ int GMRFLib_ghq(double **xp, double **wp, int n)
 		 */
 		GMRFLib_qsorts((void *) x, (size_t) n, sizeof(double), w, sizeof(double), NULL, 0, GMRFLib_dcmp);
 
-		map_ivp_set(&abscissas, n, (void *) x);
-		map_ivp_set(&weights, n, (void *) w);
+		map_ivp_set(abscissas[idx], n, (void *) x);
+		map_ivp_set(weights[idx], n, (void *) w);
 
 		if (xp) {
 			*xp = x;			       /* return a ptr only */
@@ -241,7 +258,6 @@ GMRFLib_snq_tp *GMRFLib_snq(int n, double skew3)
 
 	int i, j, k;
 	double *xxp = NULL, *wwp = NULL;
-	double inla_log_Phi(double x);			       /* external function */
 
 	double c1 = 1.2533141373155001208;		       // = sqrt(M_PI/2)
 	double c2 = 0.63661977236758138243;		       // 2/M_PI
@@ -255,6 +271,8 @@ GMRFLib_snq_tp *GMRFLib_snq(int n, double skew3)
 	double *w_hess = work + 3 * n;
 
 	GMRFLib_ghq(&xxp, &wwp, n);
+	assert(xxp);
+	assert(wwp);
 	Memcpy(nodes, xxp, n * sizeof(double));
 	Memcpy(w, wwp, n * sizeof(double));
 

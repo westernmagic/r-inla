@@ -90,21 +90,21 @@ int inla_make_fgn2_graph(GMRFLib_graph_tp ** graph, inla_fgn2_arg_tp * def)
 	return (GMRFLib_SUCCESS);
 }
 
-double Qfunc_fgn(int i, int j, double *UNUSED(values), void *arg)
+double Qfunc_fgn(int thread_id, int i, int j, double *UNUSED(values), void *arg)
 {
-	if (i >= 0 && j < 0) {
+	if (j < 0) {
 		return NAN;
 	}
 	// the model (z,x1,x2,x3,...), where z = 1/\sqrt{prec} * \sum_i \sqrt{w_i} x_i + tiny.noise,
 	// where each x is standard AR1
 
-	int debug = 0;
+	const int debug = 0;
 	static double **phi_cache = NULL, **w_cache = NULL, *H_intern_cache = NULL;
 
 	if (!arg) {
 		assert(i < 0 && j < 0);			       /* safety check */
 		if (phi_cache == NULL) {
-#pragma omp critical
+#pragma omp critical (Name_6cee800e55124771d0e7fd552ae7e48a27e4f94e)
 			{
 				if (phi_cache == NULL) {
 					phi_cache = Calloc(GMRFLib_CACHE_LEN, double *);
@@ -126,14 +126,14 @@ double Qfunc_fgn(int i, int j, double *UNUSED(values), void *arg)
 
 	inla_fgn_arg_tp *a = (inla_fgn_arg_tp *) arg;
 	double H_intern, prec, val = 0.0, *phi, *w, kappa;
-	int id;
+	int id = 0;
 
 	GMRFLib_CACHE_SET_ID(id);
 	phi = phi_cache[id];
 	w = w_cache[id];
 
-	H_intern = a->H_intern[GMRFLib_thread_id][0];
-	prec = map_precision(a->log_prec[GMRFLib_thread_id][0], MAP_FORWARD, NULL);
+	H_intern = a->H_intern[thread_id][0];
+	prec = map_precision(a->log_prec[thread_id][0], MAP_FORWARD, NULL);
 	kappa = a->prec_eps * prec;
 
 	if (!ISEQUAL(H_intern, H_intern_cache[id])) {
@@ -200,14 +200,14 @@ double inla_fgn2_helper(int i, int j, int n, double phi)
 	return 0.0;
 }
 
-double Qfunc_fgn2(int i, int j, double *UNUSED(values), void *arg)
+double Qfunc_fgn2(int thread_id, int i, int j, double *UNUSED(values), void *arg)
 {
-	if (i >= 0 && j < 0) {
+	if (j < 0) {
 		return NAN;
 	}
 	// the x^i's are the scaled AR1's, and FGN is the cummulative sum of the components.
 
-	int debug = 0;
+	const int debug = 0;
 	static double **phi_cache = NULL, **w_cache = NULL, *H_intern_cache = NULL;
 
 	if (!arg) {
@@ -228,14 +228,14 @@ double Qfunc_fgn2(int i, int j, double *UNUSED(values), void *arg)
 
 	inla_fgn2_arg_tp *a = (inla_fgn2_arg_tp *) arg;
 	double H_intern, prec, val = 0.0, *phi, *w;
-	int id;
+	int id = 0;
 
 	GMRFLib_CACHE_SET_ID(id);
 	phi = phi_cache[id];
 	w = w_cache[id];
 
-	H_intern = a->H_intern[GMRFLib_thread_id][0];
-	prec = map_precision(a->log_prec[GMRFLib_thread_id][0], MAP_FORWARD, NULL);
+	H_intern = a->H_intern[thread_id][0];
+	prec = map_precision(a->log_prec[thread_id][0], MAP_FORWARD, NULL);
 
 	if (!ISEQUAL(H_intern, H_intern_cache[id])) {
 		if (debug) {
@@ -285,7 +285,7 @@ double priorfunc_fgn_priorH(double *H_intern, double *param)
 	// return the log-prior for H_intern
 	double lprior;
 #include "fgn-prior-tables.h"
-#pragma omp critical
+#pragma omp critical (Name_f88269b9720b21345f72723d8de2fc329de96a39)
 	{
 		static GMRFLib_spline_tp *dist_spline = NULL;
 		if (!dist_spline) {

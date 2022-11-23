@@ -60,7 +60,8 @@ __BEGIN_DECLS
  */
 int GMRFLib_compute_reordering_TAUCS_orig(int **remap, GMRFLib_graph_tp * graph);
 int GMRFLib_compute_reordering_TAUCS(int **remap, GMRFLib_graph_tp * graph, GMRFLib_reorder_tp reorder, GMRFLib_global_node_tp * gn_ptr);
-int GMRFLib_build_sparse_matrix_TAUCS(taucs_ccs_matrix ** L, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, GMRFLib_graph_tp * graph, int *remap);
+int GMRFLib_build_sparse_matrix_TAUCS(int thread_id, taucs_ccs_matrix ** L, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, GMRFLib_graph_tp * graph,
+				      int *remap);
 int GMRFLib_factorise_sparse_matrix_TAUCS(taucs_ccs_matrix ** L, supernodal_factor_matrix ** symb_fact, GMRFLib_fact_info_tp * finfo,
 					  double **L_inv_diag);
 int GMRFLib_free_fact_sparse_matrix_TAUCS(taucs_ccs_matrix * L, double *L_inv_diag, supernodal_factor_matrix * symb_fact);
@@ -107,6 +108,8 @@ int GMRFLib_my_taucs_dccs_solve_llt2(void *vL, double *x, int nrhs);
 int GMRFLib_bitmap_factorisation_TAUCS__intern(taucs_ccs_matrix * L, const char *filename);
 int GMRFLib_bitmap_factorisation_TAUCS(const char *filename_body, taucs_ccs_matrix * L);
 size_t GMRFLib_sm_fact_nnz_TAUCS(supernodal_factor_matrix * L);
+
+int METIS51PARDISO_NodeND(int *, int *, int *, int *, int *, int *, int *);
 
 __END_DECLS
 #endif

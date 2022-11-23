@@ -52,7 +52,10 @@
 #include "GMRFLib/GMRFLib.h"
 #include "GMRFLib/GMRFLibP.h"
 
-static const char UNUSED(GitID[]) = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic pop
 
 static unsigned long int GMRFLib_rng_seed;
 #pragma omp threadprivate(GMRFLib_rng_seed)
@@ -61,10 +64,9 @@ int GMRFLib_rng_set_default_seed(void)
 {
 	unsigned long int seed_default = (unsigned long int) time(NULL);
 	unsigned long int seed;
-	int fd, debug = 0;
-	ssize_t nb;
+	const int debug = 0;
 	size_t len = sizeof(unsigned long int);
-#pragma omp critical					       /* only one at the time */
+#pragma omp critical (Name_96da5f632ecbd97ae1e5504794f8724fabfdee73)
 	{
 #if defined(WINDOWS)
 		{
@@ -84,9 +86,9 @@ int GMRFLib_rng_set_default_seed(void)
 		}
 #else							       /* !defined(WINDOWS) */
 		{
-			fd = open("/dev/urandom", O_RDONLY);
+			int fd = open("/dev/urandom", O_RDONLY);
 			if (fd > 0) {
-				nb = read(fd, (void *) &seed, len);
+				ssize_t nb = read(fd, (void *) &seed, len);
 				if (nb != (ssize_t) len) {
 					seed = seed_default;
 				}
@@ -103,7 +105,6 @@ int GMRFLib_rng_set_default_seed(void)
 		fprintf(stderr, "Init RNG with seed %zu\n", (size_t) seed);
 
 	GMRFLib_rng_init(seed);
-
 	return GMRFLib_SUCCESS;
 }
 

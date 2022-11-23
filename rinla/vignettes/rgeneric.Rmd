@@ -10,12 +10,12 @@ vignette: >
 ---
 
 ```{r setup, include=FALSE}
-library(INLA)
 set.seed(123)
-if (file.exists("myinit.R")) source("myinit.R")
+library(INLA)
 inla.setOption(num.threads="1:1")
 inla.setOption(smtp="taucs")
 inla.setOption(inla.mode="experimental")
+if (file.exists("myinit.R")) source("myinit.R")
 library(knitr)
 library(rmarkdown)
 knitr::opts_chunk$set(echo=TRUE, cache=FALSE, message=FALSE, warning=FALSE)
@@ -1181,17 +1181,17 @@ typedef struct {
 	int n_chars;
 	inla_cgeneric_vec_tp **chars;
 
-	int n_mat;
+	int n_mats;
 	inla_cgeneric_mat_tp **mats;
 
-	int n_smat;
+	int n_smats;
 	inla_cgeneric_smat_tp **smats;
 } inla_cgeneric_data_tp;
 ```
 where integers, doubles (or numerics), characters (or strings), dense matrices
 and sparse matrices are stored in named lists. The `n_ints` gives the
 number of integers or integer vectors, and similar with `n_doubles`,
-`n_chars`, `n_mat` and `n_smat`.  The predefined named arguments in
+`n_chars`, `n_mats` and `n_smats`.  The predefined named arguments in
 `inla.cmatrix.define` are stored first, then additional named arguments are
 stored. This implies that the argument `n` is always the first one in
 the integer list, like used in the examples above

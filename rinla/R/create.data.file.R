@@ -23,8 +23,14 @@
     if (is.null(y.orig)) {
         y.orig <- c(mf[, 1L])
     } else if (is.inla.surv(y.orig)) {
-        ## this is not passed into the inla-program
         y.orig$.special <- NULL
+        ## this only applies if we have no cure-model. make sure to remove it
+        idx <- which(names(y.orig) == "cure")
+        if (length(idx) == 1) {
+            if (is.null(y.orig$cure)) {
+                y.orig[[idx]] <- NULL
+            }
+        }
         y.orig <- as.data.frame(unclass(y.orig))
     } else if (is.inla.mdata(y.orig)) {
         y.orig <- as.data.frame(unclass(y.orig))
@@ -307,7 +313,7 @@
         null.dat <- is.na(response[, 4L])
         response <- response[!null.dat, ]
     } else if (inla.one.of(family, c(
-        "exponentialsurv", "weibullsurv", "weibullcure",
+        "exponentialsurv", "weibullsurv", 
         "loglogisticsurv", "qloglogisticsurv", "lognormalsurv",
         "gammasurv", "gammajwsurv", "fmrisurv", "gompertzsurv"))) {
         if (!inla.model.properties(family, "likelihood")$survival) {
@@ -335,6 +341,15 @@
             y.orig$event <- rep(1, len)
         }
 
+        idx.cure <- grep("^cure[.]?[1-999]*", names(y.orig))
+        if (length(idx.cure) > 0) {
+            for(i in idx.cure) {
+                yy <- y.orig[, i]
+                yy[is.na(yy)] <- 0
+                y.orig[, i] <- yy
+            }
+        }
+
         idx <- !is.na(y.orig$time)
         response <- cbind(
             ind[idx],
@@ -342,8 +357,10 @@
             y.orig$truncation[idx],
             y.orig$lower[idx],
             y.orig$upper[idx],
+            y.orig[idx, idx.cure], 
             y.orig$time[idx]
         )
+
         if (any(is.na(response))) {
             file.remove(file)
             file.remove(data.dir)
@@ -416,7 +433,7 @@
         response <- cbind(ind, E, y.orig)
         stopifnot(ncol(response) == 5)
         null.dat <- is.na(response[, 3L])
-        response <- response[!null.dat, ]
+        response <- response[!null.dat,, drop = FALSE]
         colnames(response) <- c("IDX", "E", "Y1", "Y2", "Y3")
         idx.inf <- (is.infinite(response$Y3) | (response$Y3 < 0))
         response[idx.inf, "Y3"] <- -1 ## code for infinite
@@ -431,6 +448,55 @@
         response <- response[!na.y, , drop = FALSE]
         ## format: IDX, E, LOW, HIGH, Y
         response <- cbind(IDX = response$IDX, E = response$E, LOW = response$Y2, HIGH = response$Y3, Y = response$Y1)
+    } else if (inla.one.of(family, c("cennbinomial2"))) {
+
+        if (is.null(scale)) {
+            scale <- rep(1.0, n.data)
+        }
+        if (length(scale) == 1L) {
+            scale <- rep(scale, n.data)
+        }
+
+        if (is.null(E)) {
+            E <- rep(1, n.data)
+        }
+        if (length(E) == 1L) {
+            E <- rep(E, n.data)
+        }
+
+        response <- cbind(ind, E, scale, y.orig)
+        stopifnot(ncol(response) == 6)
+        null.dat <- is.na(response[, 4L])
+        response <- response[!null.dat,, drop = FALSE ]
+        colnames(response) <- c("IDX", "E", "S", "Y1", "Y2", "Y3")
+        idx.inf <- (is.infinite(response$Y3) | (response$Y3 < 0))
+        response[idx.inf, "Y3"] <- -1 ## code for infinite
+        idx.inf <- (is.infinite(response$Y2) | (response$Y2 < 0))
+        response[idx.inf, "Y2"] <- -1 ## code for infinite
+        col.idx <- grep("^IDX$", names(response))
+        col.y <- grep("^Y[0-9]+", names(response))
+        m.y <- length(col.y)
+        stopifnot(m.y == 3L)
+        ## remove entries with NA's in all responses
+        na.y <- apply(response[, col.y, drop = FALSE], 1, function(x) all(is.na(x)))
+        response <- response[!na.y, , drop = FALSE]
+        ## format: IDX, E, S, LOW, HIGH, Y
+        response <- cbind(IDX = response$IDX, E = response$E, S = response$S, LOW = response$Y2, HIGH = response$Y3, Y = response$Y1)
+    } else if (inla.one.of(family, c("gaussianjw"))) {
+
+        response <- cbind(ind, y.orig)
+        stopifnot(ncol(response) == 5)
+        null.dat <- is.na(response[, 2L])
+        response <- response[!null.dat,, drop = FALSE]
+        null.dat <- is.na(response[, 3L])
+        response <- response[!null.dat,, drop = FALSE]
+        
+        colnames(response) <- c("IDX", "Y1", "Y2", "Y3", "Y4")
+        col.y <- 2:5
+        na.y <- apply(response[, col.y, drop = FALSE], 1, function(x) all(is.na(x)))
+        response <- response[!na.y, , drop = FALSE]
+        ## format: IDX, N, DF, VAR, Y
+        response <- cbind(IDX = response$IDX, N = response$Y3, DF = response$Y4, VAR = response$Y2, Y = response$Y1)
     } else if (inla.one.of(family, c("bgev"))) {
         if (is.null(scale)) {
             scale <- rep(1.0, n.data)

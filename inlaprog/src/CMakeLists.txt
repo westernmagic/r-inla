@@ -46,6 +46,7 @@ if (LIBR_MATH_LIBRARY)
 endif ()
 
 if (LIBR_CORE_LIBRARY)
+	target_compile_definitions (inla PRIVATE INLA_WITH_RMATH)
 	target_compile_definitions (inla PRIVATE INLA_LIBR)
 	target_link_libraries (inla PRIVATE R::R)
 endif ()

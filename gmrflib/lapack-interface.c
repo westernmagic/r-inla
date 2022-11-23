@@ -47,11 +47,200 @@ static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 #include "GMRFLib/GMRFLib.h"
 #include "GMRFLib/GMRFLibP.h"
 
+double GMRFLib_gsl_xQx(gsl_vector * x, gsl_matrix * Q)
+{
+	size_t n = Q->size1;
+	assert(n == Q->size2);
+	double sqr, sqr2;
+
+	sqr = 0.0;
+	for (size_t i = 0; i < n; i++) {
+		double xx = gsl_vector_get(x, i);
+		sqr += SQR(xx) * gsl_matrix_get(Q, i, i);
+		sqr2 = 0.0;
+		for (size_t j = i + 1; j < n; j++) {
+			sqr2 += gsl_matrix_get(Q, i, j) * gsl_vector_get(x, j);
+		}
+		sqr += 2.0 * xx * sqr2;
+	}
+	return sqr;
+}
+
+double GMRFLib_gsl_log_dnorm(gsl_vector * x, gsl_vector * mean, gsl_matrix * Q, gsl_matrix * S, int identity)
+{
+	// 'identity' says that Q=S=I
+
+	gsl_matrix *L_Q = NULL, *L_S = NULL;
+	double log_det_Q = 0.0;
+	size_t n = 0;
+
+	if (identity) {
+		if (Q) {
+			n = Q->size1;
+		} else if (S) {
+			n = S->size1;
+		} else {
+			assert(0 == 1);
+		}
+		log_det_Q = 1.0;
+	} else {
+		if (Q) {
+			n = Q->size1;
+			L_Q = GMRFLib_gsl_duplicate_matrix(Q);
+			gsl_linalg_cholesky_decomp(L_Q);
+			for (size_t i = 0; i < n; i++) {
+				log_det_Q += log(gsl_matrix_get(L_Q, i, i));
+			}
+			log_det_Q *= 2.0;
+		} else {
+			n = S->size1;
+			L_S = GMRFLib_gsl_duplicate_matrix(S);
+			gsl_linalg_cholesky_decomp(L_S);
+			for (size_t i = 0; i < n; i++) {
+				log_det_Q += log(gsl_matrix_get(L_S, i, i));
+			}
+			log_det_Q *= (-2.0);
+		}
+	}
+
+	gsl_vector *xx = gsl_vector_alloc(n);
+	if (x && mean) {
+		for (size_t i = 0; i < n; i++) {
+			gsl_vector_set(xx, i, gsl_vector_get(x, i) - gsl_vector_get(mean, i));
+		}
+	} else if (x && !mean) {
+		for (size_t i = 0; i < n; i++) {
+			gsl_vector_set(xx, i, gsl_vector_get(x, i));
+		}
+	} else if (!x && mean) {
+		for (size_t i = 0; i < n; i++) {
+			gsl_vector_set(xx, i, -gsl_vector_get(mean, i));
+		}
+	} else {
+		gsl_vector_set_zero(xx);
+	}
+
+	double sqr = 0.0;
+	if (identity) {
+		gsl_blas_ddot(xx, xx, &sqr);
+	} else {
+		if (Q) {
+			sqr = GMRFLib_gsl_xQx(xx, Q);
+		} else {
+			// copy from randist/mvgauss.c
+
+			/*
+			 * compute: work = L^{-1} * (x - mu) 
+			 */
+			gsl_blas_dtrsv(CblasLower, CblasNoTrans, CblasNonUnit, L_S, xx);
+			/*
+			 * compute: quadForm = (x - mu)' Sigma^{-1} (x - mu) 
+			 */
+			gsl_blas_ddot(xx, xx, &sqr);
+		}
+	}
+
+	if (L_S) {
+		gsl_matrix_free(L_S);
+	}
+	if (L_Q) {
+		gsl_matrix_free(L_Q);
+	}
+	gsl_vector_free(xx);
+
+	return ((-(double) n * 1.83787706640934548356065947281 + log_det_Q - sqr) * 0.5);
+}
+
+int GMRFLib_gsl_gcpo_singular_fix(int *idx_map, size_t idx_node, gsl_matrix * S, double epsilon)
+{
+	// give a covariance matrix S with mid-node 'idx_node', then detect those indices singular with 'idx_node'.
+	// idx_map will map contribution from likelihood to that node.
+	// S will be overwritten with a 'fixed' version which is non-singular and partly fake.
+
+#define MAT_SYM_SET(M_, i_, j_, val_)		  \
+	if (1) {				  \
+		gsl_matrix_set(M_, i_, j_, val_); \
+		gsl_matrix_set(M_, j_, i_, val_); \
+	}
+
+	assert(S->size1 == S->size2);
+	if (S->size1 == 0) {
+		return GMRFLib_SUCCESS;
+	}
+
+	gsl_matrix *C = GMRFLib_gsl_duplicate_matrix(S);
+	for (size_t i = 0; i < S->size1; i++) {
+		for (size_t j = i + 1; j < S->size1; j++) {
+			double val = gsl_matrix_get(C, i, j) / sqrt(gsl_matrix_get(C, i, i) * gsl_matrix_get(C, j, j));
+			val = TRUNCATE(ABS(val), 0.0, 1.0);
+			val = (ISEQUAL_x(val, 1.0, epsilon) ? 1.0 : 0.0);
+			MAT_SYM_SET(C, i, j, val);
+		}
+	}
+
+	// first connect to idx_node
+	for (size_t i = 0; i < S->size1; i++) {
+		idx_map[i] = (int) i;
+		if (i != idx_node) {
+			if (gsl_matrix_get(C, i, idx_node)) {
+				// map contribution to 'idx_node' 
+				idx_map[i] = (int) idx_node;
+				// then make that node independent of the others so it does not do any harm
+				for (size_t ii = 0; ii < S->size1; ii++) {
+					if (i != ii) {
+						MAT_SYM_SET(S, i, ii, 0.0);
+						MAT_SYM_SET(C, i, ii, 0.0);
+					}
+				}
+			}
+		}
+	}
+
+	// then connect any other nodes that are perfectly correlated
+	for (size_t i = 0; i < S->size1; i++) {
+		for (size_t j = i + 1; j < S->size1; j++) {
+			if (!(i == idx_node || j == idx_node)) {
+				if (gsl_matrix_get(C, i, j)) {
+					idx_map[j] = (int) i;
+					for (size_t jj = 0; jj < S->size1; jj++) {
+						if (j != jj) {
+							MAT_SYM_SET(S, j, jj, 0.0);
+							MAT_SYM_SET(C, j, jj, 0.0);
+						}
+					}
+				}
+			}
+		}
+	}
+
+#undef MAT_SYM_SET
+	gsl_matrix_free(C);
+
+	return GMRFLib_SUCCESS;
+}
+
 int GMRFLib_gsl_mv(gsl_matrix * A, gsl_vector * x, gsl_vector * b)
 {
 	// b = A x
 
 	gsl_blas_dgemv(CblasNoTrans, 1.0, (const gsl_matrix *) A, (const gsl_vector *) x, 0.0, b);
+	return GMRFLib_SUCCESS;
+}
+
+int GMRFLib_gsl_mm(gsl_matrix * A, gsl_matrix * B, gsl_matrix * C)
+{
+	// C = A B
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, (const gsl_matrix *) A, (const gsl_matrix *) B, 0.0, (gsl_matrix *) C);
+	return GMRFLib_SUCCESS;
+}
+
+int GMRFLib_gsl_mmm(gsl_matrix * A, gsl_matrix * B, gsl_matrix * C, gsl_matrix * D)
+{
+	// D = A B C
+	gsl_matrix *T = gsl_matrix_alloc(A->size1, B->size2);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, (const gsl_matrix *) A, (const gsl_matrix *) B, 0.0, (gsl_matrix *) T);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, 1.0, (const gsl_matrix *) T, (const gsl_matrix *) C, 0.0, (gsl_matrix *) D);
+	gsl_matrix_free(T);
 	return GMRFLib_SUCCESS;
 }
 
@@ -64,11 +253,17 @@ int GMRFLib_comp_posdef_inverse(double *matrix, int dim)
 
 	switch (GMRFLib_blas_level) {
 	case BLAS_LEVEL2:
+	{
 		dpotf2_("L", &dim, matrix, &dim, &info, F_ONE);
+	}
 		break;
+
 	case BLAS_LEVEL3:
+	{
 		dpotrf_("L", &dim, matrix, &dim, &info, F_ONE);
+	}
 		break;
+
 	default:
 		GMRFLib_ASSERT(1 == 0, GMRFLib_ESNH);
 		break;
@@ -158,11 +353,17 @@ int GMRFLib_comp_chol_general(double **chol, double *matrix, int dim, double *lo
 
 	switch (GMRFLib_blas_level) {
 	case BLAS_LEVEL2:
+	{
 		dpotf2_("L", &dim, a, &dim, &info, F_ONE);
+	}
 		break;
+
 	case BLAS_LEVEL3:
+	{
 		dpotrf_("L", &dim, a, &dim, &info, F_ONE);
+	}
 		break;
+
 	default:
 		GMRFLib_ASSERT(1 == 0, GMRFLib_ESNH);
 		break;
@@ -214,14 +415,38 @@ gsl_matrix *GMRFLib_gsl_duplicate_matrix(gsl_matrix * A)
 	/*
 	 * return a new (alloced) copy of matrix A 
 	 */
+	gsl_matrix *B = NULL;
 	if (A) {
-		gsl_matrix *B = gsl_matrix_alloc(A->size1, A->size2);
+		B = gsl_matrix_alloc(A->size1, A->size2);
 		gsl_matrix_memcpy(B, A);
-
-		return B;
-	} else {
-		return (gsl_matrix *) NULL;
 	}
+	return B;
+}
+
+gsl_matrix *GMRFLib_gsl_transpose_matrix(gsl_matrix * A)
+{
+	/*
+	 * return a new (alloced) t(A)
+	 */
+	gsl_matrix *At = NULL;
+
+	if (!A) {
+		return At;
+	}
+
+	if (A->size1 == A->size2) {
+		At = GMRFLib_gsl_duplicate_matrix(A);
+		gsl_matrix_transpose(At);
+	} else {
+		At = gsl_matrix_alloc(A->size2, A->size1);
+		for (size_t i = 0; i < A->size1; i++) {
+			for (size_t j = 0; j < A->size2; j++) {
+				gsl_matrix_set(At, j, i, gsl_matrix_get(A, i, j));
+			}
+		}
+	}
+
+	return At;
 }
 
 double GMRFLib_gsl_spd_logdet(gsl_matrix * A)
@@ -234,6 +459,7 @@ double GMRFLib_gsl_spd_logdet(gsl_matrix * A)
 	size_t i;
 
 	L = GMRFLib_gsl_duplicate_matrix(A);
+	assert(L);
 	gsl_linalg_cholesky_decomp(L);
 
 	for (i = 0; i < L->size1; i++) {
@@ -350,7 +576,7 @@ int GMRFLib_gsl_ginv(gsl_matrix * A, double tol, int rankdef)
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_ensure_spd(double *A, int dim, double tol)
+int GMRFLib_ensure_spd(double *A, int dim, double tol, char **msg)
 {
 	// this just a plain interface to the GMRFLib_gsl_ensure_spd
 
@@ -363,7 +589,7 @@ int GMRFLib_ensure_spd(double *A, int dim, double tol)
 			gsl_matrix_set(AA, j, i, A[i + j * dim]);
 		}
 	}
-	GMRFLib_gsl_ensure_spd(AA, tol);
+	GMRFLib_gsl_ensure_spd(AA, tol, msg);
 	for (i = 0; i < (size_t) dim; i++) {
 		for (j = 0; j <= i; j++) {
 			A[i + j * dim] = gsl_matrix_get(AA, i, j);
@@ -374,14 +600,28 @@ int GMRFLib_ensure_spd(double *A, int dim, double tol)
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_gsl_ensure_spd(gsl_matrix * A, double tol)
+int GMRFLib_gsl_ensure_spd(gsl_matrix * A, double tol, char **msg)
+{
+	return GMRFLib_gsl_ensure_spd_core(A, tol, 0, msg);
+}
+
+int GMRFLib_gsl_ensure_spd_inverse(gsl_matrix * A, double tol, char **msg)
+{
+	return GMRFLib_gsl_ensure_spd_core(A, tol, 1, msg);
+}
+
+int GMRFLib_gsl_ensure_spd_core(gsl_matrix * A, double tol, int method, char **msg)
 {
 	/*
 	 * replace n x n matrix A with its SPD matrix, replacing small eigenvalues with 'tol' * max(|eigenvalue|).
+	 *
+	 * if tol < 0, then use tol = (min(eigenvalue > 0) / max(eigenvalue)
+	 *
+	 * method=0: s=max(min,s)
+	 * method=1: s=1/max(min,s)
 	 */
 
 	assert(A && (A->size1 == A->size2));
-	assert(tol >= 0.0);
 	gsl_matrix *U = GMRFLib_gsl_duplicate_matrix(A);
 	gsl_vector *S = gsl_vector_alloc(A->size1);
 	gsl_eigen_symmv_workspace *work = gsl_eigen_symmv_alloc(A->size1);
@@ -391,17 +631,46 @@ int GMRFLib_gsl_ensure_spd(gsl_matrix * A, double tol)
 	size_t i;
 	double one = 1.0, zero = 0.0, s;
 
-	double s_max = ABS(gsl_vector_max(S));
+	double s_min, s_max = gsl_vector_max(S);
+	if (s_max <= 0.0) {
+		s_max = 0.0;				       /* then the whole matrix is zero or INF, as all is wrong... */
+	}
+
+	if (tol < 0.0 && s_max > 0.0) {
+		int n_neg = 0;
+		s_min = s_max;
+		for (i = 0; i < A->size1; i++) {
+			double s = gsl_vector_get(S, i);
+			if (s <= 0.0) {
+				n_neg++;
+			}
+			if (s > 0.0 && s < s_min) {
+				s_min = s;
+			}
+		}
+		tol = s_min / s_max;
+		if (msg) {
+			GMRFLib_sprintf(msg, "set tol=[%.4g]. number of negative eigenvalues=[%1d]", tol, n_neg);
+		}
+	}
+
 	gsl_matrix *M1 = gsl_matrix_alloc(A->size1, A->size2);
 	gsl_matrix *M2 = gsl_matrix_alloc(A->size1, A->size2);
 
 	gsl_matrix_set_zero(M1);
 	gsl_matrix_set_zero(M2);
 
-	double s_min = tol * s_max;
-	for (i = 0; i < A->size1; i++) {
-		s = gsl_vector_get(S, i);
-		gsl_matrix_set(M2, i, i, DMAX(s_min, s));
+	s_min = tol * s_max;
+	if (method == 0) {
+		for (i = 0; i < A->size1; i++) {
+			s = gsl_vector_get(S, i);
+			gsl_matrix_set(M2, i, i, DMAX(s_min, s));
+		}
+	} else {
+		for (i = 0; i < A->size1; i++) {
+			s = gsl_vector_get(S, i);
+			gsl_matrix_set(M2, i, i, 1.0 / DMAX(s_min, s));
+		}
 	}
 
 	gsl_blas_dgemm(CblasNoTrans, CblasTrans, one, M2, U, zero, M1);
@@ -426,7 +695,7 @@ int GMRFLib_gsl_safe_spd_solve(gsl_matrix * A, gsl_vector * b, gsl_vector * x, d
 	 *
 	 */
 
-	int debug = 0;
+	const int debug = 0;
 	assert(A && (A->size1 == A->size2));
 	assert(tol >= 0.0);
 
@@ -489,7 +758,7 @@ int GMRFLib_gsl_spd_inv(gsl_matrix * A, double tol)
 	 * A=inv(A) for symmetric A, ignoring contributions from eigenvalues < tol*max(eigenval)
 	 */
 
-	int debug = 0;
+	const int debug = 0;
 	assert(A && (A->size1 == A->size2));
 	assert(tol >= 0.0);
 
@@ -543,34 +812,36 @@ int GMRFLib_gsl_mgs(gsl_matrix * A)
 	// the sign of each column is so that max(abs(column)) is positive
 
 	gsl_vector *q = gsl_vector_alloc(A->size1);
-	size_t i, j, k, n = A->size1;
+	size_t n1 = A->size1;
+	size_t n2 = A->size2;
 
-	for (i = 0; i < n; i++) {
-
+	for (size_t i = 0; i < n2; i++) {
 		double aij_amax = 0.0, r = 0.0;
-		for (j = 0; j < n; j++) {
+
+		for (size_t j = 0; j < n1; j++) {
 			double elm = gsl_matrix_get(A, j, i);
 			r += SQR(elm);
 			aij_amax = (ABS(elm) > ABS(aij_amax) ? elm : aij_amax);
 		}
 
 		if (aij_amax < 0.0) {			       /* swap the sign of this column */
-			for (j = 0; j < n; j++) {
+			for (size_t j = 0; j < n1; j++) {
 				gsl_matrix_set(A, j, i, -gsl_matrix_get(A, j, i));
 			}
 		}
 
 		r = sqrt(r);
-		for (j = 0; j < n; j++) {
+		for (size_t j = 0; j < n1; j++) {
 			gsl_vector_set(q, j, gsl_matrix_get(A, j, i) / r);
 			gsl_matrix_set(A, j, i, gsl_vector_get(q, j));	// normalize
 		}
 
-		for (j = i + 1; j < n; j++) {
-			for (r = 0, k = 0; k < n; k++) {
+		for (size_t j = i + 1; j < n2; j++) {
+			r = 0.0;
+			for (size_t k = 0; k < n1; k++) {
 				r += gsl_vector_get(q, k) * gsl_matrix_get(A, k, j);
 			}
-			for (k = 0; k < n; k++) {
+			for (size_t k = 0; k < n1; k++) {
 				gsl_matrix_set(A, k, j, gsl_matrix_get(A, k, j) - r * gsl_vector_get(q, k));
 			}
 		}
@@ -578,4 +849,214 @@ int GMRFLib_gsl_mgs(gsl_matrix * A)
 	gsl_vector_free(q);
 
 	return (GMRFLib_SUCCESS);
+}
+
+gsl_matrix *GMRFLib_gsl_low_rank(gsl_matrix * Cov, double tol)
+{
+	/*
+	 * Compute the low-rank representation in terms of x=Bz from a given possible singular covariance matrix.
+	 * We ignore contributions from eigenvalue < tol*max(eigenval)
+	 */
+
+	assert(Cov && (Cov->size1 == Cov->size2));
+	assert(tol >= 0.0 && tol <= 1.0);
+
+	size_t n = Cov->size1;
+	gsl_matrix *U = GMRFLib_gsl_duplicate_matrix(Cov);
+	gsl_vector *S = gsl_vector_alloc(n);
+
+	gsl_eigen_symmv_workspace *work = gsl_eigen_symmv_alloc(n);
+	gsl_eigen_symmv(Cov, S, U, work);
+	gsl_eigen_symmv_sort(S, U, GSL_EIGEN_SORT_VAL_DESC);
+
+	double s_max = gsl_vector_max(S);
+	assert(s_max > 0.0);
+	assert(s_max == gsl_vector_get(S, 0));
+
+	size_t m = 0;
+	double s_min = tol * s_max;
+	for (size_t i = 0; i < n; i++) {
+		if (gsl_vector_get(S, i) >= s_min) {
+			m++;
+		} else {
+			break;
+		}
+	}
+
+	gsl_matrix *D = gsl_matrix_alloc(n, m);
+	gsl_matrix_set_zero(D);
+	for (size_t i = 0; i < m; i++) {
+		gsl_matrix_set(D, i, i, sqrt(gsl_vector_get(S, i)));
+	}
+	gsl_matrix *B = gsl_matrix_alloc(n, m);
+	GMRFLib_gsl_mm(U, D, B);
+
+	gsl_matrix_free(U);
+	gsl_matrix_free(D);
+	gsl_vector_free(S);
+	gsl_eigen_symmv_free(work);
+
+	return B;
+}
+
+
+double GMRFLib_gsl_kld(gsl_vector * m_base, gsl_matrix * Q_base, gsl_vector * m, gsl_matrix * Q, double tol, int *rankdef)
+{
+	// compute the KLD between two mult-var normals, where either or both matrices can be numerical singular. Make sure that the rank is the
+	// same for both, and return the computed rank-deficiency in 'rankdef' if given
+
+	FIXME("gsl_kld is not tested");
+
+	size_t n = Q_base->size1;
+	assert(n == Q_base->size2);
+	assert(n == Q->size2);
+	assert(n == Q->size2);
+
+	gsl_matrix *U_base = GMRFLib_gsl_duplicate_matrix(Q_base);
+	gsl_matrix *U = GMRFLib_gsl_duplicate_matrix(Q);
+	gsl_vector *S_base = gsl_vector_alloc(n);
+	gsl_vector *S = gsl_vector_alloc(n);
+	gsl_eigen_symmv_workspace *work_base = gsl_eigen_symmv_alloc(n);
+	gsl_eigen_symmv_workspace *work = gsl_eigen_symmv_alloc(n);
+	double tolerance_base = tol;
+	double tolerance = tol;
+	double one = 1.0, zero = 0.0;
+
+	gsl_vector_set_zero(S_base);
+	gsl_vector_set_zero(S);
+
+	gsl_eigen_symmv(Q_base, S_base, U_base, work_base);
+	gsl_eigen_symmv(Q, S, U, work);
+
+	size_t i;
+	double s = 0.0, s_min_base = 0.0, s_max_base = gsl_vector_max(S_base);
+	s_max_base = DMAX(0.0, s_max_base);
+
+	if (s_max_base > 0.0) {
+		s_min_base = s_max_base;
+		for (i = 0; i < n; i++) {
+			double s = gsl_vector_get(S_base, i);
+			if (s > 0.0 && s < s_min_base) {
+				s_min_base = s;
+			}
+		}
+		tolerance_base = s_min_base / s_max_base;
+	}
+
+	double s_min = 0.0, s_max = gsl_vector_max(S);
+	s_max = DMAX(0.0, s_max);
+
+	if (s_max > 0.0) {
+		s_min = s_max;
+		for (i = 0; i < n; i++) {
+			double s = gsl_vector_get(S, i);
+			if (s > 0.0 && s < s_min) {
+				s_min = s;
+			}
+		}
+		tolerance = s_min / s_max;
+	}
+
+	int rdef_base = 0;
+	int rdef = 0;
+
+	s_min_base = tolerance_base * s_max_base;
+	s_min = tolerance * s_max;
+
+	for (i = 0; i < n; i++) {
+		s = gsl_vector_get(S_base, i);
+		rdef_base += (s < s_min_base);
+		if (s < s_min_base)
+			s = 0.0;
+		gsl_vector_set(S_base, i, s);
+
+		s = gsl_vector_get(S, i);
+		rdef += (s < s_min);
+		if (s < s_min)
+			s = 0.0;
+		gsl_vector_set(S, i, s);
+	}
+
+	rdef = IMAX(rdef_base, rdef);
+
+	double ldet_base = 0.0;
+	double ldet = 0.0;
+	for (i = 0; i < n - rdef; i++) {
+		ldet_base += log(gsl_vector_get(S_base, i));
+		ldet += log(gsl_vector_get(S, i));
+	}
+
+	gsl_matrix *Cov_base = GMRFLib_gsl_duplicate_matrix(Q_base);
+	gsl_matrix *M1 = gsl_matrix_alloc(n, n);
+	gsl_matrix *M2 = gsl_matrix_alloc(n, n);
+	gsl_matrix_set_zero(M1);
+	gsl_matrix_set_zero(M2);
+
+	for (i = 0; i < n - rdef; i++) {
+		gsl_matrix_set(M2, i, i, 1.0 / gsl_vector_get(S_base, i));
+	}
+	gsl_blas_dgemm(CblasNoTrans, CblasTrans, one, M2, U_base, zero, M1);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, one, U_base, M1, zero, M2);
+	gsl_matrix_memcpy(Cov_base, M2);
+
+	gsl_matrix *Q_corr = GMRFLib_gsl_duplicate_matrix(Q);
+	gsl_matrix_set_zero(M1);
+	gsl_matrix_set_zero(M2);
+	for (i = 0; i < n - rdef; i++) {
+		gsl_matrix_set(M2, i, i, gsl_vector_get(S, i));
+	}
+	gsl_blas_dgemm(CblasNoTrans, CblasTrans, one, M2, U, zero, M1);
+	gsl_blas_dgemm(CblasNoTrans, CblasNoTrans, one, U, M1, zero, M2);
+	gsl_matrix_memcpy(Q_corr, M2);
+
+	double kld = 0.0;
+
+	// trace-term
+	gsl_matrix_set_zero(M1);
+	gsl_matrix_set_zero(M2);
+
+	GMRFLib_gsl_mm(Cov_base, Q_corr, M1);
+	for (i = 0; i < n; i++) {
+		kld += gsl_matrix_get(M1, i, i);
+	}
+	kld *= (double) (n - rdef) / (double) n;
+
+	// quadratic term
+	gsl_vector *v1 = gsl_vector_alloc(n);
+	gsl_vector *v2 = gsl_vector_alloc(n);
+	gsl_vector_set_zero(v1);
+	gsl_vector_set_zero(v2);
+
+	for (i = 0; i < n; i++) {
+		gsl_vector_set(v1, i, gsl_vector_get(m_base, i) - gsl_vector_get(m, i));
+	}
+	GMRFLib_gsl_mv(Cov_base, v1, v2);
+	double quadratic = 0.0;
+	gsl_blas_ddot(v1, v2, &quadratic);
+	kld += quadratic;
+
+	kld = 0.5 * (kld - (double) (n - rdef) + (ldet_base - ldet));
+	if (rankdef) {
+		*rankdef = rdef;
+	}
+
+	gsl_eigen_symmv_free(work_base);
+	gsl_eigen_symmv_free(work);
+	gsl_matrix_free(M1);
+	gsl_matrix_free(M2);
+	gsl_matrix_free(Q_corr);
+	gsl_matrix_free(U);
+	gsl_matrix_free(U_base);
+	gsl_vector_free(S);
+	gsl_vector_free(S_base);
+	gsl_vector_free(v1);
+	gsl_vector_free(v2);
+
+	return kld;
+}
+
+int GMRFLib_dscale(int n, double a, double *x)
+{
+	int one = 1;
+	return (dscal_(&n, &a, x, &one));
 }

@@ -41,8 +41,8 @@ static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
-#include <openssl/sha.h>
 
+#include "GMRFLib/sha.h"
 #include "GMRFLib/GMRFLib.h"
 #include "GMRFLib/GMRFLibP.h"
 
@@ -53,15 +53,17 @@ static int constr_store_use = 0;			       /* do not use it as the sha is not pre
 #else
 static int constr_store_use = 1;
 #endif
-static map_strd constr_store;
+static map_strvp constr_store;
 static int constr_store_must_init = 1;
 static int constr_store_debug = 0;
 
 int GMRFLib_init_constr_store(void)
 {
+	GMRFLib_ENTER_ROUTINE;
+	constr_store_debug = GMRFLib_DEBUG_IF_TRUE();
 	if (constr_store_use) {
 		if (constr_store_must_init) {
-			map_strd_init_hint(&constr_store, 128);
+			map_strvp_init_hint(&constr_store, 128);
 			constr_store.alwaysdefault = 1;
 			constr_store_must_init = 0;
 			if (constr_store_debug) {
@@ -69,10 +71,39 @@ int GMRFLib_init_constr_store(void)
 			}
 		}
 	}
+	GMRFLib_LEAVE_ROUTINE;
 	return GMRFLib_SUCCESS;
 }
 
-double GMRFLib_Qfunc_wrapper(int sub_node, int sub_nnode, double *values, void *arguments)
+
+#if defined(INLA_WINDOWS32)
+static int constr_store_logdet_use = 0;			       /* do not use it as the sha is not prepared for it */
+#else
+static int constr_store_logdet_use = 1;
+#endif
+static map_strd constr_store_logdet;
+static int constr_store_logdet_must_init = 1;
+static int constr_store_logdet_debug = 0;
+
+int GMRFLib_init_constr_store_logdet(void)
+{
+	GMRFLib_ENTER_ROUTINE;
+	constr_store_logdet_debug = GMRFLib_DEBUG_IF_TRUE();
+	if (constr_store_logdet_use) {
+		if (constr_store_logdet_must_init) {
+			map_strd_init_hint(&constr_store_logdet, 128);
+			constr_store_logdet.alwaysdefault = 1;
+			constr_store_logdet_must_init = 0;
+			if (constr_store_logdet_debug) {
+				printf("constr_store_logdet: init storage\n");
+			}
+		}
+	}
+	GMRFLib_LEAVE_ROUTINE;
+	return GMRFLib_SUCCESS;
+}
+
+double GMRFLib_Qfunc_wrapper(int thread_id, int sub_node, int sub_nnode, double *values, void *arguments)
 {
 	int node, nnode;
 	double val;
@@ -88,20 +119,20 @@ double GMRFLib_Qfunc_wrapper(int sub_node, int sub_nnode, double *values, void *
 	if (nnode >= 0) {
 		// the normal case, nothing spesific to do
 		if (node == nnode) {
-			val = (*(args->user_Qfunc)) (node, nnode, NULL, args->user_Qfunc_args) + args->diagonal_adds[node];
+			val = (*(args->user_Qfunc)) (thread_id, node, nnode, NULL, args->user_Qfunc_args) + args->diagonal_adds[node];
 		} else {
-			val = (*(args->user_Qfunc)) (node, nnode, NULL, args->user_Qfunc_args);
+			val = (*(args->user_Qfunc)) (thread_id, node, nnode, NULL, args->user_Qfunc_args);
 		}
 	} else {
 		// this is the multi-case
-		val = (*(args->user_Qfunc)) (node, -1, values, args->user_Qfunc_args);
+		val = (*(args->user_Qfunc)) (thread_id, node, -1, values, args->user_Qfunc_args);
 		if (ISNAN(val)) {
 			// the Qfunction does not support it, move on doing it manually
 			int j, jj, k = 0;
-			values[k++] = (*(args->user_Qfunc)) (node, node, NULL, args->user_Qfunc_args) + args->diagonal_adds[node];
+			values[k++] = (*(args->user_Qfunc)) (thread_id, node, node, NULL, args->user_Qfunc_args) + args->diagonal_adds[node];
 			for (jj = 0; jj < args->graph->lnnbs[node]; jj++) {
 				j = args->graph->lnbs[node][jj];
-				values[k++] = (*(args->user_Qfunc)) (node, j, NULL, args->user_Qfunc_args);
+				values[k++] = (*(args->user_Qfunc)) (thread_id, node, j, NULL, args->user_Qfunc_args);
 			}
 		} else {
 			values[0] += args->diagonal_adds[node];
@@ -113,19 +144,20 @@ double GMRFLib_Qfunc_wrapper(int sub_node, int sub_nnode, double *values, void *
 
 int validate_constr1(GMRFLib_constr_tp * constr, int n)
 {
-	GMRFLib_constr_tp *new = NULL;
+	GMRFLib_constr_tp *nnew = NULL;
 	GMRFLib_graph_tp *g = Calloc(1, GMRFLib_graph_tp);
 	g->n = n;
 
-	GMRFLib_duplicate_constr(&new, constr, g);
+	GMRFLib_duplicate_constr(&nnew, constr, g);
+	assert(nnew);
 	for (int j = 0; j < constr->nc; j++) {
-		if ((new->jfirst[j] != constr->jfirst[j]) || (new->jlen[j] != constr->jlen[j])) {
-			printf("CONSTR jfirst/jlen ERROR: i= %d new->jfirst= %d old->jfirst= %d new->jlen= %d old->jlen= %d\n",
-			       j, new->jfirst[j], constr->jfirst[j], new->jlen[j], constr->jlen[j]);
+		if ((nnew->jfirst[j] != constr->jfirst[j]) || (nnew->jlen[j] != constr->jlen[j])) {
+			printf("CONSTR jfirst/jlen ERROR: i= %d nnew->jfirst= %d old->jfirst= %d nnew->jlen= %d old->jlen= %d\n",
+			       j, nnew->jfirst[j], constr->jfirst[j], nnew->jlen[j], constr->jlen[j]);
 			abort();
 		}
 	}
-	GMRFLib_free_constr(new);
+	GMRFLib_free_constr(nnew);
 	Free(g);
 
 	return GMRFLib_SUCCESS;
@@ -149,7 +181,7 @@ int dgemm_special(int m, int n, double *C, double *A, double *B, GMRFLib_constr_
 	static storage_t **storage = NULL;
 
 	if (!storage) {
-#pragma omp critical
+#pragma omp critical (Name_e4b888063524c281c8bef772bc2579873731fa49)
 		{
 			if (!storage) {
 				storage = Calloc(GMRFLib_CACHE_LEN, storage_t *);
@@ -157,7 +189,7 @@ int dgemm_special(int m, int n, double *C, double *A, double *B, GMRFLib_constr_
 		}
 	}
 
-	int id;
+	int id = 0;
 	GMRFLib_CACHE_SET_ID(id);
 
 	if (!storage[id]) {
@@ -184,14 +216,21 @@ int dgemm_special(int m, int n, double *C, double *A, double *B, GMRFLib_constr_
 	}
 #define CODE_BLOCK							\
 	for (int k = 0; k < storage[id]->K; k++) {			\
-		CODE_BLOCK_SET_THREAD_ID();				\
 		int i = storage[id]->ii[k], j = storage[id]->jj[k], incx = m, incy = 1;	\
 		double value;						\
-		value = ddot_(&(constr->jlen[i]), &(A[i + m * constr->jfirst[i]]), &incx, &(B[j * n + constr->jfirst[i]]), &incy); \
+		if (0) value = ddot_(&(constr->jlen[i]), &(A[i + m * constr->jfirst[i]]), &incx, &(B[j * n + constr->jfirst[i]]), &incy); \
+		value = GMRFLib_dot_product(constr->idxval[i], B + j * n); \
 		C[i + j * m] = C[j + i * m] = value;			\
 	}
 
-	RUN_CODE_BLOCK((m > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1), 0, 0);
+	int nt = 0;
+	if (omp_get_level() > 2) {
+		nt = 1;
+	} else {
+		nt = (m > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1);
+	}
+
+	RUN_CODE_BLOCK(nt, 0, 0);
 #undef CODE_BLOCK
 
 	return GMRFLib_SUCCESS;
@@ -211,7 +250,7 @@ int dgemm_special2(int m, double *C, double *A, GMRFLib_constr_tp * constr)
 	static storage_t **storage = NULL;
 
 	if (!storage) {
-#pragma omp critical
+#pragma omp critical (Name_756fb3e47fb1205cd5e595775867506d805d78f6)
 		{
 			if (!storage) {
 				storage = Calloc(GMRFLib_CACHE_LEN, storage_t *);
@@ -219,7 +258,7 @@ int dgemm_special2(int m, double *C, double *A, GMRFLib_constr_tp * constr)
 		}
 	}
 
-	int id;
+	int id = 0;
 	GMRFLib_CACHE_SET_ID(id);
 
 	if (!storage[id]) {
@@ -246,7 +285,6 @@ int dgemm_special2(int m, double *C, double *A, GMRFLib_constr_tp * constr)
 	}
 #define CODE_BLOCK							\
 	for (int k = 0; k < storage[id]->K; k++) {			\
-		CODE_BLOCK_SET_THREAD_ID();				\
 		int i = storage[id]->ii[k], j = storage[id]->jj[k], incx = m, jf, je, jlen; \
 		double value;						\
 		jf = IMAX(constr->jfirst[i], constr->jfirst[j]);	\
@@ -260,7 +298,14 @@ int dgemm_special2(int m, double *C, double *A, GMRFLib_constr_tp * constr)
 		C[i + j * m] = C[j + i * m] = value;			\
 	}
 
-	RUN_CODE_BLOCK((m > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1), 0, 0);
+	int nt = 0;
+	if (omp_get_level() > 2) {
+		nt = 1;
+	} else {
+		nt = (m > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1);
+	}
+
+	RUN_CODE_BLOCK(nt, 0, 0);
 #undef CODE_BLOCK
 
 	return GMRFLib_SUCCESS;
@@ -270,48 +315,72 @@ int dgemv_special(double *res, double *x, GMRFLib_constr_tp * constr)
 {
 	// compute 'res = A %*% x'
 
-	int nc = constr->nc, inc = 1;
+	int nc = constr->nc;
+	int nt = 0;
+
+	// can be used on third level
+	if (omp_get_level() > 2) {
+		nt = 1;
+	} else {
+		nt = (nc > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1);
+	}
 
 #define CODE_BLOCK							\
 	for (int i = 0; i < nc; i++) {					\
-		CODE_BLOCK_SET_THREAD_ID();				\
-		res[i] = ddot_(&(constr->jlen[i]), &(constr->a_matrix[i + nc * constr->jfirst[i]]), &nc, &(x[constr->jfirst[i]]), &inc); \
+		res[i] = GMRFLib_dot_product(constr->idxval[i], x);	\
 	}
 
-	RUN_CODE_BLOCK((nc > GMRFLib_MAX_THREADS()? GMRFLib_MAX_THREADS() : 1), 0, 0);
+	// res[i] = ddot_(&(constr->jlen[i]), &(constr->a_matrix[i + nc * constr->jfirst[i]]), &nc, &(x[constr->jfirst[i]]), &inc); 
+
+	RUN_CODE_BLOCK(nt, 0, 0);
 #undef CODE_BLOCK
 
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_Qsolve(double *x, double *b, GMRFLib_problem_tp * problem)
+int GMRFLib_Qsolve(double *x, double *b, GMRFLib_problem_tp * problem, int idx)
 {
 	// solve Q x = b, but correct for constraints, like eq 2.30 in the GMRF-book, x := x - Q^-1A^T(AQ^-1A^T)^-1 (Ax-e).
 
+	// if IDX >=0 then assume only b[idx] != 0, if IDX < 0, then assume a general B
+
 	GMRFLib_ENTER_ROUTINE;
 
-	static double *work = NULL;
-#pragma omp threadprivate(work)
-	static int work_len = 0;
-#pragma omp threadprivate(work_len)
+	static double **wwork = NULL;
+	static int *wwork_len = NULL;
+	if (!wwork) {
+#pragma omp critical (Name_415e5dc8137b4c7fc43dd511591be71a0710d398)
+		{
+			if (!wwork) {
+				wwork_len = Calloc(GMRFLib_CACHE_LEN, int);
+				wwork = Calloc(GMRFLib_CACHE_LEN, double *);
+			}
+		}
+	}
 
 	int n = problem->sub_graph->n;
 	int nc = (problem->sub_constr && problem->sub_constr->nc > 0 ? problem->sub_constr->nc : 0);
 	double *xx = NULL;
+	int cache_idx = 0;
 
-	if (n + nc > work_len) {
-		Free(work);
-		work_len = n + nc;
-		work = Calloc(work_len, double);
+	GMRFLib_CACHE_SET_ID(cache_idx);
+	if (n + nc > wwork_len[cache_idx]) {
+		Free(wwork[cache_idx]);
+		wwork_len[cache_idx] = n + nc;
+		wwork[cache_idx] = Calloc(wwork_len[cache_idx], double);
 	}
-	xx = work;
+	xx = wwork[cache_idx];
 
 	Memcpy(xx, b, n * sizeof(double));
-	GMRFLib_solve_llt_sparse_matrix(xx, 1, &(problem->sub_sm_fact), problem->sub_graph);
+	if (idx >= 0) {
+		GMRFLib_solve_llt_sparse_matrix_special(xx, &(problem->sub_sm_fact), problem->sub_graph, idx);
+	} else {
+		GMRFLib_solve_llt_sparse_matrix(xx, 1, &(problem->sub_sm_fact), problem->sub_graph);
+	}
 
 	if ((problem->sub_constr && problem->sub_constr->nc > 0)) {
 		int nc = problem->sub_constr->nc, inc = 1;
-		double alpha = -1.0, beta = 1.0, *t_vector = work + n;
+		double alpha = -1.0, beta = 1.0, *t_vector = wwork[cache_idx] + n;
 		GMRFLib_eval_constr0(t_vector, NULL, xx, problem->sub_constr, problem->sub_graph);
 		dgemv_("N", &n, &nc, &alpha, problem->constr_m, &n, t_vector, &inc, &beta, xx, &inc, F_ONE);
 	}
@@ -322,18 +391,19 @@ int GMRFLib_Qsolve(double *x, double *b, GMRFLib_problem_tp * problem)
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_init_problem(GMRFLib_problem_tp ** problem,
+int GMRFLib_init_problem(int thread_id, GMRFLib_problem_tp ** problem,
 			 double *x,
 			 double *b,
 			 double *c, double *mean, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_args, GMRFLib_constr_tp * constr)
 {
 	GMRFLib_ENTER_ROUTINE;
-	GMRFLib_EWRAP1(GMRFLib_init_problem_store(problem, x, b, c, mean, graph, Qfunc, Qfunc_args, constr, NULL));
+	GMRFLib_EWRAP1(GMRFLib_init_problem_store(thread_id, problem, x, b, c, mean, graph, Qfunc, Qfunc_args, constr, NULL));
 	GMRFLib_LEAVE_ROUTINE;
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
+int GMRFLib_init_problem_store(int thread_id,
+			       GMRFLib_problem_tp ** problem,
 			       double *x,
 			       double *b,
 			       double *c,
@@ -503,7 +573,7 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 	}
 	sub_Qfunc_arg->user_Qfunc = Qfunc;
 	sub_Qfunc_arg->user_Qfunc_args = Qfunc_args;
-	GMRFLib_EWRAP1(GMRFLib_tabulate_Qfunc(&((*problem)->tab), (*problem)->sub_graph, sub_Qfunc, (void *) sub_Qfunc_arg, NULL));
+	GMRFLib_EWRAP1(GMRFLib_tabulate_Qfunc(thread_id, &((*problem)->tab), (*problem)->sub_graph, sub_Qfunc, (void *) sub_Qfunc_arg, NULL));
 
 	Free(sub_Qfunc_arg->diagonal_adds);
 	Free(sub_Qfunc_arg);
@@ -530,7 +600,7 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 
 		tmp = Calloc(sub_n, double);
 
-		GMRFLib_Qx(tmp, mean, (*problem)->sub_graph, (*problem)->tab->Qfunc, (*problem)->tab->Qfunc_arg);
+		GMRFLib_Qx(thread_id, tmp, mean, (*problem)->sub_graph, (*problem)->tab->Qfunc, (*problem)->tab->Qfunc_arg);
 		for (i = 0; i < sub_n; i++) {
 			bb[i] += tmp[i];
 		}
@@ -566,7 +636,7 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 	}
 
 	int ret;
-	ret = GMRFLib_build_sparse_matrix(&((*problem)->sub_sm_fact), (*problem)->tab->Qfunc,
+	ret = GMRFLib_build_sparse_matrix(thread_id, &((*problem)->sub_sm_fact), (*problem)->tab->Qfunc,
 					  (char *) ((*problem)->tab->Qfunc_arg), (*problem)->sub_graph);
 	if (ret != GMRFLib_SUCCESS) {
 		return ret;
@@ -594,7 +664,12 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 		 */
 		b_add = Calloc((*problem)->sub_graph->n, double);
 
-		GMRFLib_EWRAP1(GMRFLib_recomp_constr(&((*problem)->sub_constr), constr, x, b_add, NULL, graph, (*problem)->sub_graph));
+		if (sub_n == graph->n) {
+			GMRFLib_duplicate_constr(&((*problem)->sub_constr), constr, graph);
+		} else {
+			GMRFLib_recomp_constr(&((*problem)->sub_constr), constr, x, b_add, NULL, graph, (*problem)->sub_graph);
+		}
+
 		/*
 		 * if we should keep the mean, then do not add the correction-terms 
 		 */
@@ -668,7 +743,7 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 			retval = GMRFLib_comp_chol_general(&((*problem)->l_aqat_m), aqat_m, nc, &((*problem)->logdet_aqat), GMRFLib_ESINGCONSTR);
 			if (retval != GMRFLib_SUCCESS) {
 				GMRFLib_WARNING("Matrix AQA^t is numerical singular, remove singularity and move on");
-				GMRFLib_ensure_spd(aqat_m, nc, GMRFLib_eps(0.5));
+				GMRFLib_ensure_spd(aqat_m, nc, GMRFLib_eps(0.5), NULL);
 				GMRFLib_EWRAP1(GMRFLib_comp_chol_general
 					       (&((*problem)->l_aqat_m), aqat_m, nc, &((*problem)->logdet_aqat), GMRFLib_ESINGCONSTR));
 			}
@@ -696,16 +771,16 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 			GMRFLib_constr_tp *con = (*problem)->sub_constr;
 			double *p = NULL;
 
-			if (con->sha && constr_store_use) {
-				p = map_strd_ptr(&constr_store, (char *) con->sha);
+			if (con->sha && constr_store_logdet_use) {
+				p = map_strd_ptr(&constr_store_logdet, (char *) con->sha);
 				if (p) {
 					(*problem)->logdet_aat = *p;
 				}
-				if (constr_store_debug) {
+				if (constr_store_logdet_debug) {
 					if (p) {
-						printf("constr_store: constr found in store= %f\n", *p);
+						printf("constr_store_logdet: constr found in store= %f\n", *p);
 					} else {
-						printf("constr_store: constr not found in store\n");
+						printf("constr_store_logdet: constr not found in store\n");
 					}
 				}
 			}
@@ -727,24 +802,27 @@ int GMRFLib_init_problem_store(GMRFLib_problem_tp ** problem,
 				retval = GMRFLib_comp_chol_general(&tmp_vector, aat_m, nc, &((*problem)->logdet_aat), GMRFLib_ESINGCONSTR2);
 				if (retval != GMRFLib_SUCCESS) {
 					GMRFLib_WARNING("Matrix AA^t is numerical singular, remove singularity and move on");
-					GMRFLib_ensure_spd(aat_m, nc, GMRFLib_eps(0.5));
+					GMRFLib_ensure_spd(aat_m, nc, GMRFLib_eps(0.5), NULL);
 					GMRFLib_EWRAP1(GMRFLib_comp_chol_general
 						       (&tmp_vector, aat_m, nc, &((*problem)->logdet_aat), GMRFLib_ESINGCONSTR2));
 				}
 				Free(aat_m);
 				Free(tmp_vector);
 
-				if (constr_store_use) {
+				if (constr_store_logdet_use) {
 					if (!(con->sha)) {
-						if (constr_store_debug) {
-							printf("constr_store: value computed %f, but not set\n", (*problem)->logdet_aat);
+						if (constr_store_logdet_debug) {
+							printf("constr_store_logdet: value computed %f, but not set\n", (*problem)->logdet_aat);
 						}
 					} else if (con->sha) {
-						if (constr_store_debug) {
-							printf("constr_store: store value %f\n", (*problem)->logdet_aat);
+						if (constr_store_logdet_debug) {
+							printf("constr_store_logdet: store value %f\n", (*problem)->logdet_aat);
 						}
-#pragma omp critical
-						map_strd_set(&constr_store, GMRFLib_strdup((char *) con->sha), (*problem)->logdet_aat);
+#pragma omp critical (Name_8c313c5cb0ba5eb20ede5a81e455580200ca1348)
+						{
+							map_strd_set(&constr_store_logdet, GMRFLib_strdup((char *) con->sha),
+								     (*problem)->logdet_aat);
+						}
 					}
 				}
 			}
@@ -883,6 +961,7 @@ int GMRFLib_evaluate__intern(GMRFLib_problem_tp * problem, int compute_const)
 	 */
 
 	int i, n;
+	int thread_id = -1;
 	double sqrterm, *xx = NULL, *yy = NULL, *work = NULL;
 
 	if (!problem) {
@@ -901,7 +980,7 @@ int GMRFLib_evaluate__intern(GMRFLib_problem_tp * problem, int compute_const)
 		problem->sub_sample[i] = problem->sample[i];
 		xx[i] = problem->sub_sample[i] - problem->sub_mean[i];
 	}
-	GMRFLib_Qx(yy, xx, problem->sub_graph, problem->tab->Qfunc, (void *) problem->tab->Qfunc_arg);
+	GMRFLib_Qx(thread_id, yy, xx, problem->sub_graph, problem->tab->Qfunc, (void *) problem->tab->Qfunc_arg);
 	for (i = 0, sqrterm = 0.0; i < n; i++) {
 		sqrterm += yy[i] * xx[i];
 	}
@@ -1079,6 +1158,16 @@ double *GMRFLib_Qinv_get(GMRFLib_problem_tp * problem, int i, int j)
 	return map_id_ptr(problem->sub_inverse->Qinv[IMIN(ii, jj)], IMAX(ii, jj));
 }
 
+double GMRFLib_Qinv_get0(GMRFLib_problem_tp * problem, int i, int j)
+{
+	int ii = problem->sub_inverse->mapping[i];
+	int jj = problem->sub_inverse->mapping[j];
+	double *d = map_id_ptr(problem->sub_inverse->Qinv[IMIN(ii, jj)], IMAX(ii, jj));
+	if (d == NULL)
+		printf("i j NULL %d %d\n", i, j);
+	return (d ? *d : 0.0);
+}
+
 int GMRFLib_make_empty_constr(GMRFLib_constr_tp ** constr)
 {
 	if (constr) {
@@ -1089,14 +1178,40 @@ int GMRFLib_make_empty_constr(GMRFLib_constr_tp ** constr)
 
 int GMRFLib_free_constr(GMRFLib_constr_tp * constr)
 {
-	if (constr) {
-		Free(constr->a_matrix);
-		Free(constr->e_vector);
-		Free(constr->jfirst);
-		Free(constr->jlen);
-		Free(constr->sha);
-		Free(constr);
+	if (!constr) {
+		return GMRFLib_SUCCESS;
 	}
+
+	if (constr_store_use && constr->sha) {
+		void *p;
+		p = map_strvp_ptr(&constr_store, (char *) constr->sha);
+		if (constr_store_debug) {
+			if (p) {
+				printf("\t[%1d] constr_store: constr is found in store: do not free\n", omp_get_thread_num());
+			} else {
+				printf("\t[%1d] constr_store: constr is not found in store: free\n", omp_get_thread_num());
+			}
+		}
+		if (p) {
+			return GMRFLib_SUCCESS;
+		}
+	}
+
+	Free(constr->a_matrix);
+	Free(constr->e_vector);
+	Free(constr->jfirst);
+	// Free(constr->jlen); included in jfirst
+
+	if (constr->idxval) {
+		for (int i = 0; i < constr->nc; i++) {
+			GMRFLib_idxval_free(constr->idxval[i]);
+		}
+		Free(constr->idxval);
+	}
+
+	Free(constr->sha);
+	Free(constr);
+
 	return GMRFLib_SUCCESS;
 }
 
@@ -1110,7 +1225,7 @@ int GMRFLib_printf_constr(FILE * fp, GMRFLib_constr_tp * constr, GMRFLib_graph_t
 	}
 	fpp = (fp ? fp : stdout);
 
-	fprintf(fpp, "n_constr %d\n", constr->nc);
+	fprintf(fpp, "n_constr %d  is_scaled %d\n", constr->nc, constr->is_scaled);
 	for (i = 0; i < constr->nc; i++) {
 		fprintf(fpp, "constraint %d, e= %f\na[%1d, ] = ", i, constr->e_vector[i], i);
 		for (j = 0; j < graph->n; j++) {
@@ -1130,80 +1245,63 @@ int GMRFLib_prepare_constr(GMRFLib_constr_tp * constr, GMRFLib_graph_tp * graph,
 	/*
 	 * prepare a constraint
 	 */
-	int i, j, nc, k, n, debug = 0;
-	double *scale = NULL;
+	int nc, n;
 
-	if (!constr) {
+	if (!constr || constr->is_prepared) {
 		return GMRFLib_SUCCESS;
 	}
 
 	nc = constr->nc;
 	n = graph->n;
 
-	if (scale_constr) {
-
+	if (scale_constr && !(constr->is_scaled)) {
 		/*
-		 * first, scale the constraints so that max(|A[i,]|)=1 
+		 * scale the constraints so that max(|A[i,]|)=1 
 		 */
-		int need_scaling = 0;
-
-		scale = Calloc(nc, double);
-
-		for (k = 0; k < nc; k++) {
-			for (i = 0; i < n; i++) {
-				scale[k] = DMAX(scale[k], ABS(constr->a_matrix[i * nc + k]));
+		for (int k = 0; k < nc; k++) {
+			int idx = idamax_(&n, constr->a_matrix + k, &nc) - 1;
+			double a = 1.0 / ABS(constr->a_matrix[idx * nc + k]);
+			if (!ISEQUAL(a, 1.0)) {
+				dscal_(&n, &a, constr->a_matrix + k, &nc);
+				constr->e_vector[k] *= a;
 			}
 		}
-
-		if (debug) {
-			for (k = 0; k < nc; k++) {
-				printf("scale A[%1d,] .... %f\n", k, scale[k]);
-			}
-		}
-
-		for (k = 0, need_scaling = 0; k < nc; k++) {
-			need_scaling = (need_scaling || (scale[k] != 1.0));
-		}
-
-		if (need_scaling) {
-			if (debug) {
-				printf("need scaling\n");
-			}
-
-			for (k = 0; k < nc; k++) {
-				for (i = 0; i < n; i++) {
-					constr->a_matrix[i * nc + k] /= scale[k];
-				}
-				constr->e_vector[k] /= scale[k];
-			}
-		}
-		Free(scale);
-		if (debug) {
-			printf("scaled constr\n");
-			GMRFLib_printf_constr(stdout, constr, graph);
-		}
+		constr->is_scaled = 1;
 	}
 
-	// Free(constr->jfirst);
-	// Free(constr->jlen);
-	constr->jfirst = Calloc(nc, int);
-	constr->jlen = Calloc(nc, int);
-	for (i = 0; i < nc; i++) {
-		for (j = 0; j < n; j++) {
-			if (constr->a_matrix[i + j * nc] != 0.0) {
+	constr->jfirst = Calloc(2 * nc, int);
+	constr->jlen = constr->jfirst + nc;
+
+	for (int i = 0; i < nc; i++) {
+		double *a = constr->a_matrix + i;
+		for (int j = 0; j < n; j++) {
+			if (!ISZERO(a[j * nc])) {
 				constr->jfirst[i] = j;
 				break;
 			}
 		}
-		for (j = n - 1; j >= 0; j--) {
-			if (constr->a_matrix[i + j * nc] != 0.0) {
+		for (int j = n - 1; j >= 0; j--) {
+			if (!ISZERO(a[j * nc])) {
 				constr->jlen[i] = j - constr->jfirst[i] + 1;
 				break;
 			}
 		}
 	}
 
+	constr->idxval = Calloc(nc, GMRFLib_idxval_tp *);
+	for (int i = 0; i < nc; i++) {
+		double *a = constr->a_matrix;
+		for (int j = 0; j < n; j++) {
+			int k = i + j * nc;
+			if (!ISZERO(a[k])) {
+				GMRFLib_idxval_add(&(constr->idxval[i]), j, a[k]);
+			}
+		}
+	}
+	GMRFLib_idxval_prepare(constr->idxval, nc, 1);
+
 	GMRFLib_constr_add_sha(constr, graph);
+	constr->is_prepared = 1;
 
 	return GMRFLib_SUCCESS;
 }
@@ -1303,14 +1401,39 @@ int GMRFLib_eval_constr0(double *value, double *sqr_value, double *x, GMRFLib_co
 
 int GMRFLib_duplicate_constr(GMRFLib_constr_tp ** new_constr, GMRFLib_constr_tp * constr, GMRFLib_graph_tp * graph)
 {
-	if (constr) {
-		return GMRFLib_recomp_constr(new_constr, constr, NULL, NULL, NULL, graph, NULL);
-	} else {
-		if (new_constr) {
-			*new_constr = NULL;
-		}
+	if (!constr) {
+		*new_constr = NULL;
 		return GMRFLib_SUCCESS;
 	}
+
+	if (constr_store_use && constr->sha) {
+		void **p;
+		p = map_strvp_ptr(&constr_store, (char *) constr->sha);
+		if (constr_store_debug) {
+			if (p) {
+				printf("\t[%1d] constr_store: constr is found in store: do not duplicate.\n", omp_get_thread_num());
+			} else {
+				printf("\t[%1d] constr_store: constr is not found in store: duplicate.\n", omp_get_thread_num());
+			}
+		}
+		if (p) {
+			*new_constr = (GMRFLib_constr_tp *) * p;
+			return GMRFLib_SUCCESS;
+		}
+	}
+
+	GMRFLib_recomp_constr(new_constr, constr, NULL, NULL, NULL, graph, NULL);
+
+	if (constr_store_use && constr->sha) {
+		if (constr_store_debug) {
+			printf("\t[%1d] constr_store: store constr 0x%p\n", omp_get_thread_num(), (void *) *new_constr);
+		}
+#pragma omp critical (Name_94faae67756d65c5760e5596c1b377f8844e3f00)
+		{
+			map_strvp_set(&constr_store, (char *) (*new_constr)->sha, (void *) *new_constr);
+		}
+	}
+	return GMRFLib_SUCCESS;
 }
 
 int GMRFLib_recomp_constr(GMRFLib_constr_tp ** new_constr, GMRFLib_constr_tp * constr, double *x,
@@ -1341,6 +1464,7 @@ int GMRFLib_recomp_constr(GMRFLib_constr_tp ** new_constr, GMRFLib_constr_tp * c
 		 */
 		GMRFLib_make_empty_constr(new_constr);
 		(*new_constr)->nc = constr->nc;
+		(*new_constr)->is_scaled = constr->is_scaled;
 
 		(*new_constr)->a_matrix = Calloc(graph->n * constr->nc, double);
 		Memcpy((*new_constr)->a_matrix, constr->a_matrix, graph->n * constr->nc * sizeof(double));
@@ -1573,12 +1697,8 @@ GMRFLib_problem_tp *GMRFLib_duplicate_problem(GMRFLib_problem_tp * problem, int 
 		np->sub_constr = NULL;
 	} else {
 		if (problem->sub_constr) {
-			GMRFLib_make_empty_constr(&(np->sub_constr));
-			COPY(sub_constr->nc);
-			DUPLICATE(sub_constr->a_matrix, nc * ns, double, 0);
-			DUPLICATE(sub_constr->e_vector, nc, double, 0);
-			DUPLICATE(sub_constr->jfirst, nc, int, 0);
-			DUPLICATE(sub_constr->jlen, nc, int, 0);
+			// this will make use of the cache
+			GMRFLib_duplicate_constr(&(np->sub_constr), problem->sub_constr, problem->sub_graph);
 		} else {
 			COPY(sub_constr);
 		}
@@ -1622,7 +1742,7 @@ GMRFLib_problem_tp *GMRFLib_duplicate_problem(GMRFLib_problem_tp * problem, int 
 			Qfunc_arg->values = NULL;
 		}
 		if (tmp->Q) {
-			GMRFLib_csr_duplicate(&(Qfunc_arg->Q), tmp->Q);
+			GMRFLib_csr_duplicate(&(Qfunc_arg->Q), tmp->Q, 1);
 		}
 
 		tab->Qfunc_arg = (void *) Qfunc_arg;
@@ -1679,9 +1799,6 @@ GMRFLib_store_tp *GMRFLib_duplicate_store(GMRFLib_store_tp * store, int skeleton
 	COPY(bandwidth);
 	DUPLICATE(remap, ns, int, 0);
 
-	int id = omp_get_thread_num();
-	GMRFLib_meminfo_thread_id = id;
-
 	if (copy_ptr == GMRFLib_TRUE) {
 		/*
 		 * just copy ptr's; read only 
@@ -1698,7 +1815,6 @@ GMRFLib_store_tp *GMRFLib_duplicate_store(GMRFLib_store_tp * store, int skeleton
 		GMRFLib_duplicate_pardiso_store(&(new_store->PARDISO_fact), store->PARDISO_fact, copy_ptr, copy_pardiso_ptr);
 	}
 
-	GMRFLib_meminfo_thread_id *= -1;
 	char *tmp = Calloc(1, char);
 	Free(tmp);
 
@@ -1727,9 +1843,9 @@ GMRFLib_store_tp *GMRFLib_duplicate_store(GMRFLib_store_tp * store, int skeleton
 	return new_store;
 }
 
-double GMRFLib_Qfunc_generic(int i, int j, double *UNUSED(values), void *arg)
+double GMRFLib_Qfunc_generic(int UNUSED(thread_id), int i, int j, double *UNUSED(values), void *arg)
 {
-	if (i >= 0 && j < 0) {
+	if (j < 0) {
 		return NAN;
 	}
 
@@ -1756,8 +1872,9 @@ int GMRFLib_optimize_reorder(GMRFLib_graph_tp * graph, size_t *nnz_opt, int *use
 		GMRFLib_reorder = GMRFLib_REORDER_PARDISO;
 		*nnz_opt = 0;
 	} else {
+		static int debug = 0;
 		size_t *nnzs = NULL, nnz_best;
-		int k, debug = 0, n = -1, nk, r, i, ne = 0, use_global_nodes;
+		int k, n = -1, nk, r, i, ne = 0, use_global_nodes;
 		GMRFLib_reorder_tp rs[] = { GMRFLib_REORDER_METIS, GMRFLib_REORDER_AMDC };
 		taucs_ccs_matrix *Q = NULL;
 		char *fixed = NULL;
@@ -1856,7 +1973,7 @@ int GMRFLib_optimize_reorder(GMRFLib_graph_tp * graph, size_t *nnz_opt, int *use
 				cputime[k] = GMRFLib_cpu() - cputime[k];
 
 				if (debug) {
-#pragma omp critical
+#pragma omp critical (Name_4dc800d9b856792e63baa1e9a01d82865c857322)
 					{
 						printf("%s: reorder=[%s] \tnnz=%zu \tUseGlobalNodes=%1d cpu=%.4f\n",
 						       __GMRFLib_FuncName, GMRFLib_reorder_name(rs[kkk]), nnzs[k], use_global_nodes, cputime[k]);

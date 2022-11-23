@@ -48,25 +48,8 @@
 #endif
 
 __BEGIN_DECLS
-#ifdef _OPENMP
 #include <omp.h>
-#else
-extern void omp_set_num_threads(int);
-extern int omp_get_num_threads(void);
-extern int omp_get_max_threads(void);
-extern int omp_get_thread_num(void);
-extern int omp_get_thread_num_(void);
-extern int omp_get_num_procs(void);
-extern int omp_in_parallel(void);
-extern void omp_set_dynamic(int);
-extern int omp_get_dynamic(void);
-extern void omp_set_nested(int);
-extern int omp_get_nested(void);
-extern double omp_get_wtime(void);
-extern double omp_get_wtick(void);
-#endif
-
-typedef enum {
+    typedef enum {
 	GMRFLib_OPENMP_STRATEGY_SMALL = 1,
 	GMRFLib_OPENMP_STRATEGY_MEDIUM,
 	GMRFLib_OPENMP_STRATEGY_LARGE,
@@ -95,11 +78,13 @@ typedef enum {
 	GMRFLib_OPENMP_PLACES_COMBINE,
 	GMRFLib_OPENMP_PLACES_EXTERNAL,
 	GMRFLib_OPENMP_PLACES_TIMING,
+	GMRFLib_OPENMP_PLACES_GCPO_BUILD,
+	GMRFLib_OPENMP_PLACES_SPECIAL,
 	GMRFLib_OPENMP_PLACES_DEFAULT,
 	GMRFLib_OPENMP_PLACES_NONE
 } GMRFLib_openmp_place_tp;
 
-#define GMRFLib_OPENMP_PLACE_NAME(num) \
+#define GMRFLib_OPENMP_PLACE_NAME(num)					\
 	((num) == GMRFLib_OPENMP_PLACES_PARSE_MODEL ? "parse.model" :	\
 	 ((num) == GMRFLib_OPENMP_PLACES_BUILD_MODEL ? "build.model" :	\
 	  ((num) == GMRFLib_OPENMP_PLACES_OPTIMIZE ? "optimize" :	\
@@ -108,8 +93,10 @@ typedef enum {
 	     ((num) == GMRFLib_OPENMP_PLACES_INTEGRATE_HYPERPAR ? "integrate.hyperpar" : \
 	      ((num) == GMRFLib_OPENMP_PLACES_COMBINE ? "combine" :	\
 	       ((num) == GMRFLib_OPENMP_PLACES_EXTERNAL ? "external" :	\
-		 ((num) == GMRFLib_OPENMP_PLACES_DEFAULT ? "default" :	\
-		  ((num) == GMRFLib_OPENMP_PLACES_NONE ? "none" : "THIS SHOULD NOT HAPPEN"))))))))))
+		((num) == GMRFLib_OPENMP_PLACES_GCPO_BUILD ? "gcpo_build" : \
+		 ((num) == GMRFLib_OPENMP_PLACES_SPECIAL ? "special" : \
+		  ((num) == GMRFLib_OPENMP_PLACES_DEFAULT ? "default" :	\
+		   ((num) == GMRFLib_OPENMP_PLACES_NONE ? "none" : "THIS SHOULD NOT HAPPEN"))))))))))))
 
 typedef struct {
 	GMRFLib_openmp_place_tp place;
@@ -125,7 +112,8 @@ typedef struct {
 	int adaptive;
 } GMRFLib_openmp_tp;
 
-#define GMRFLib_MAX_THREADS() (GMRFLib_openmp ? GMRFLib_openmp->max_threads : IMIN(omp_get_max_threads(), omp_get_num_procs()))
+#define GMRFLib_MAX_THREADS() (GMRFLib_openmp->max_threads)
+
 // Might replace `4' in the generic pardiso control statement later (if that happens)
 #define GMRFLib_PARDISO_MAX_NUM_THREADS() (GMRFLib_openmp->adaptive ?	\
 					   IMIN(GMRFLib_MAX_THREADS(), GMRFLib_openmp->max_threads_nested[1] * 8) : \
@@ -139,6 +127,15 @@ typedef struct {
 int GMRFLib_set_blas_num_threads(int threads);
 int GMRFLib_openmp_nested_fix(void);
 int GMRFLib_openmp_implement_strategy(GMRFLib_openmp_place_tp place, void *arg, GMRFLib_smtp_tp * smtp);
+int GMRFLib_openmp_implement_strategy_special(int outer, int inner);
+
+#if defined(INLA_LINK_WITH_MKL)
+void MKL_Set_Num_Threads(int);
+#endif
+#if defined(INLA_LINK_WITH_OPENBLAS)
+void openblas_set_num_threads(int);
+#endif
+
 
 __END_DECLS
 #endif

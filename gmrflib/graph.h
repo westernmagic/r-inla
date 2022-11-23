@@ -43,7 +43,8 @@
 #endif
 #include <stdlib.h>
 #include <stdio.h>
-#include <openssl/sha.h>
+
+#include "GMRFLib/sha.h"
 
 #undef __BEGIN_DECLS
 #undef __END_DECLS
@@ -100,7 +101,7 @@ typedef struct {
   
   \sa GMRFLib_Qx
 */
-typedef double GMRFLib_Qfunc_tp(int node, int nnode, double *values, void *argument);
+typedef double GMRFLib_Qfunc_tp(int thread_id, int node, int nnode, double *values, void *argument);
 
 /*!
   \struct GMRFLib_graph_tp graph.h 
@@ -160,7 +161,6 @@ typedef struct {
 	 */
 	int **snbs;
 
-	int **guess;
 	int *row2col;
 
 	int n_ptr;
@@ -169,7 +169,6 @@ typedef struct {
 	int *colidx;
 	int *colptr;
 	int *rowidx;
-
 } GMRFLib_graph_tp;
 
 typedef struct {
@@ -194,17 +193,16 @@ typedef struct {
 	int n;						       /* original graph->n */
 } GMRFLib_offset_arg_tp;
 
-double GMRFLib_offset_Qfunc(int node, int nnode, double *values, void *arg);
+double GMRFLib_offset_Qfunc(int thread_id, int node, int nnode, double *values, void *arg);
 int *GMRFLib_graph_cc(GMRFLib_graph_tp * g);
-int GMRFLib_QM(gsl_matrix * result, gsl_matrix * x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
-int GMRFLib_Qx(double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
-int GMRFLib_Qx2(double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, double *diag);
+int GMRFLib_QM(int thread_id, gsl_matrix * result, gsl_matrix * x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
+int GMRFLib_Qx(int thread_id, double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
+int GMRFLib_Qx2(int thread_id, double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, double *diag);
 int GMRFLib_convert_from_mapped(double *destination, double *source, GMRFLib_graph_tp * graph, int *remap);
 int GMRFLib_convert_to_mapped(double *destination, double *source, GMRFLib_graph_tp * graph, int *remap);
 int GMRFLib_find_idx(int *idx, int n, int *iarray, int value);
 int GMRFLib_getbit(GMRFLib_uchar c, unsigned int bitno);
 int GMRFLib_graph_add_crs_crc(GMRFLib_graph_tp * graph);
-int GMRFLib_graph_add_guess(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_add_lnbs_info(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_add_row2col(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_add_sha(GMRFLib_graph_tp * g);
@@ -218,6 +216,7 @@ int GMRFLib_graph_free(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_init_store(void);
 int GMRFLib_graph_insert(GMRFLib_graph_tp ** new_graph, int n_new, int offset, GMRFLib_graph_tp * graph);
 int GMRFLib_graph_is_nb(int node, int nnode, GMRFLib_graph_tp * graph);
+int GMRFLib_graph_is_nb_g(int node, int nnode, GMRFLib_graph_tp * graph, int *g);
 int GMRFLib_graph_max_lnnbs(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_max_nnbs(GMRFLib_graph_tp * graph);
 int GMRFLib_graph_max_snnbs(GMRFLib_graph_tp * graph);
@@ -242,13 +241,15 @@ int GMRFLib_lattice2node(int *node, int irow, int icol, int nrow, int ncol);
 int GMRFLib_node2lattice(int node, int *irow, int *icol, int nrow, int ncol);
 int GMRFLib_offset(GMRFLib_offset_tp ** off, int n_new, int offset, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
 int GMRFLib_printbits(FILE * fp, GMRFLib_uchar c);
-int GMRFLib_printf_Qfunc(FILE * fp, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
-int GMRFLib_printf_Qfunc2(FILE * fp, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
+int GMRFLib_printf_Qfunc(int thread_id, FILE * fp, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
+int GMRFLib_printf_Qfunc2(int thread_id, FILE * fp, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
 int GMRFLib_printf_graph(FILE * fp, GMRFLib_graph_tp * graph);
 int GMRFLib_setbit(GMRFLib_uchar * c, unsigned int bitno);
-int GMRFLib_xQx(double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
-int GMRFLib_xQx2(double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, double *diag);
+int GMRFLib_xQx(int thread_id, double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg);
+int GMRFLib_xQx2(int thread_id, double *result, double *x, GMRFLib_graph_tp * graph, GMRFLib_Qfunc_tp * Qfunc, void *Qfunc_arg, double *diag);
 size_t GMRFLib_graph_sizeof(GMRFLib_graph_tp * graph);
+void *GMRFLib_bsearch(int key, int n, int *array);
+void *GMRFLib_bsearch2(int key, int n, int *array, int *guess);
 
 __END_DECLS
 #endif

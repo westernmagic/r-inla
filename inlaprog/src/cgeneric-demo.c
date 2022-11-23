@@ -56,8 +56,8 @@ double *inla_cgeneric_iid_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 	case INLA_CGENERIC_VOID:
 	{
 		assert(!(cmd == INLA_CGENERIC_VOID));
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_GRAPH:
 	{
@@ -72,62 +72,68 @@ double *inla_cgeneric_iid_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 
 		int M = N;
 		ret = Calloc(2 + 2 * N, double);
+		assert(ret);
 		ret[0] = N;				       /* dimension */
 		ret[1] = M;				       /* number of (i <= j) */
 		for (int i = 0; i < M; i++) {
 			ret[2 + i] = i;			       /* i */
 			ret[2 + N + i] = i;		       /* j */
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_Q:
 	{
 		// return c(-1, M, Qij) in the same order as defined in INLA_CGENERIC_GRAPH
 		int M = N;
 		ret = Calloc(2 + N, double);
+		assert(ret);
 		ret[0] = -1;				       /* REQUIRED! */
 		ret[1] = M;				       /* number of (i <= j) */
 		for (int i = 0; i < M; i++) {
 			ret[2 + i] = prec;
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_MU:
 	{
 		// return (N, mu)
 		// if N==0 then mu is not needed as its taken to be mu[]==0
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = 0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_INITIAL:
 	{
 		// return c(M, initials)
 		// where M is the number of hyperparameters
 		ret = Calloc(2, double);
+		assert(ret);
 		ret[0] = 1;
 		ret[1] = 4.0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_NORM_CONST:
 	{
 		// return c(NORM_CONST) or a NULL-pointer if INLA should compute it by itself
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = N * (-0.9189385332 + 0.5 * lprec);
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_PRIOR:
 	{
 		// return c(LOG_PRIOR)
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = -prec + lprec;			       // prec ~ gamma(1,1)
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_QUIT:
 	default:
@@ -160,8 +166,8 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 	case INLA_CGENERIC_VOID:
 	{
 		assert(!(cmd == INLA_CGENERIC_VOID));
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_GRAPH:
 	{
@@ -176,7 +182,7 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 
 		int M = N + N - 1, offset, i, k;
 		ret = Calloc(2 + 2 * M, double);
-
+		assert(ret);
 		offset = 2;
 		ret[0] = N;				       /* dimension */
 		ret[1] = M;				       /* number of (i <= j) */
@@ -188,8 +194,8 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 				ret[offset + M + k++] = i + 1; /* j */
 			}
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_Q:
 	{
@@ -201,7 +207,7 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 		int M = N + N - 1;
 		int offset, i, k;
 		ret = Calloc(2 + M, double);
-
+		assert(ret);
 		offset = 2;
 		ret[0] = -1;				       /* REQUIRED */
 		ret[1] = M;
@@ -211,8 +217,8 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 				ret[offset + k++] = -param * rho;
 			}
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_MU:
 	{
@@ -220,9 +226,10 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 		// if N==0 then mu is not needed as its taken to be mu[]==0
 
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = 0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_INITIAL:
 	{
@@ -230,11 +237,12 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 		// where M is the number of hyperparameters
 
 		ret = Calloc(3, double);
+		assert(ret);
 		ret[0] = 2;
 		ret[1] = 1.0;
 		ret[2] = 1.0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_NORM_CONST:
 	{
@@ -242,18 +250,20 @@ double *inla_cgeneric_ar1_model(inla_cgeneric_cmd_tp cmd, double *theta, inla_cg
 
 		double prec_innovation = prec / (1.0 - SQR(rho));
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = N * (-0.5 * log(2.0 * M_PI) + 0.5 * log(prec_innovation)) + 0.5 * log(1.0 - SQR(rho));
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_PRIOR:
 	{
 		// return c(LOG_PRIOR)
 
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = -prec + lprec - 0.5 * log(2.0 * M_PI) - 0.5 * SQR(rho_intern);
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_QUIT:
 	default:
@@ -297,8 +307,8 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 	case INLA_CGENERIC_VOID:
 	{
 		assert(!(cmd == INLA_CGENERIC_VOID));
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_GRAPH:
 	{
@@ -313,6 +323,7 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 
 		int M = Cmatrix->n, offset;
 		ret = Calloc(2 + 2 * M, double);
+		assert(ret);
 		offset = 2;
 		ret[0] = N;				       /* dimension */
 		ret[1] = M;				       /* number of (i <= j) */
@@ -320,8 +331,8 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 			ret[offset + k] = Cmatrix->i[k];       /* i */
 			ret[offset + M + k] = Cmatrix->j[k];   /* j */
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_Q:
 	{
@@ -332,15 +343,15 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 		int M = Cmatrix->n;
 		int offset;
 		ret = Calloc(2 + M, double);
-
+		assert(ret);
 		offset = 2;
 		ret[0] = -1;				       /* REQUIRED */
 		ret[1] = M;
 		for (int k = 0; k < M; k++) {
 			ret[offset + k] = prec * Cmatrix->x[k];
 		}
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_MU:
 	{
@@ -348,9 +359,10 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 		// if N==0 then mu is not needed as its taken to be mu[]==0
 
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = 0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_INITIAL:
 	{
@@ -358,27 +370,30 @@ double *inla_cgeneric_generic0_model(inla_cgeneric_cmd_tp cmd, double *theta, in
 		// where M is the number of hyperparameters
 
 		ret = Calloc(2, double);
+		assert(ret);
 		ret[0] = 1;
 		ret[1] = 4.0;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_NORM_CONST:
 	{
 		// return c(NORM_CONST) or a NULL-pointer if INLA should compute it by itself
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = N / 2.0 * (lprec - log(2.0 * M_PI));
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_LOG_PRIOR:
 	{
 		// return c(LOG_PRIOR). with a Gamma(1,1) for precision, this is the log prior for the log(precision).
 
 		ret = Calloc(1, double);
+		assert(ret);
 		ret[0] = -prec + lprec;
-		break;
 	}
+		break;
 
 	case INLA_CGENERIC_QUIT:
 	default:

@@ -41,12 +41,17 @@
 #include "inla.h"
 #include "spde3.h"
 
-static const char UNUSED(GitID[]) = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic pop
+
 extern G_tp G;						       /* import some global parametes from inla */
 
-int inla_spde3_build_model(inla_spde3_tp ** smodel, const char *prefix, const char *transform)
+int inla_spde3_build_model(int UNUSED(thread_id), inla_spde3_tp ** smodel, const char *prefix, const char *transform)
 {
-	int i, debug = 0;
+	int i;
+	const int debug = 0;
 	inla_spde3_tp *model = NULL;
 	char *fnm = NULL;
 
@@ -210,9 +215,10 @@ int inla_spde3_build_model(inla_spde3_tp ** smodel, const char *prefix, const ch
 
 	return INLA_OK;
 }
-double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
+
+double inla_spde3_Qfunction(int thread_id, int i, int j, double *UNUSED(values), void *arg)
 {
-	if (i >= 0 && j < 0) {
+	if (j < 0) {
 		return NAN;
 	}
 
@@ -222,7 +228,8 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 	double phi_j[3] = { 0.0, 0.0, 0.0 };
 	double d_i[3] = { 0.0, 0.0, 0.0 };
 	double d_j[3] = { 0.0, 0.0, 0.0 };
-	int k, kk, use_store = 1, debug = 0;
+	int k, kk, use_store = 1;
+	const int debug = 0;
 
 	/*
 	 * to hold the i'th and j'th and k'th row of the B-matrices. use one storage only
@@ -242,7 +249,7 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 				/*
 				 * '-1' is the correction for the first intercept column in B 
 				 */
-				phi_i[k] += row_i[kk] * model->theta[kk - 1][GMRFLib_thread_id][0];
+				phi_i[k] += row_i[kk] * model->theta[kk - 1][thread_id][0];
 			}
 			phi_j[k] = phi_i[k];		       /* they are equal in this case */
 		} else {
@@ -257,8 +264,8 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 				/*
 				 * '-1' is the correction for the first intercept column in B 
 				 */
-				phi_i[k] += row_i[kk] * model->theta[kk - 1][GMRFLib_thread_id][0];
-				phi_j[k] += row_j[kk] * model->theta[kk - 1][GMRFLib_thread_id][0];
+				phi_i[k] += row_i[kk] * model->theta[kk - 1][thread_id][0];
+				phi_j[k] += row_j[kk] * model->theta[kk - 1][thread_id][0];
 			}
 		}
 	}
@@ -274,20 +281,35 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 	if (i == j) {
 		switch (model->transform) {
 		case SPDE3_TRANSFORM_IDENTITY:
+		{
 			d_i[2] = phi_i[2];
+		}
 			break;
+
 		case SPDE3_TRANSFORM_LOG:
+		{
 			d_i[2] = exp(phi_i[2]);
+		}
 			break;
+
 		case SPDE3_TRANSFORM_SHIFTEDLOG:
+		{
 			d_i[2] = 2.0 * exp(phi_i[2]) - 1.0;
+		}
 			break;
+
 		case SPDE3_TRANSFORM_LOGIT:
+		{
 			d_i[2] = (1.0 - exp(phi_i[2])) / (1.0 + exp(phi_i[2]));
+		}
 			break;
+
 		case SPDE3_TRANSFORM_OLDLOGIT:
+		{
 			d_i[2] = cos(M_PI / (1.0 + exp(-phi_i[2])));
+		}
 			break;
+
 		default:
 			assert(0 == 1);
 		}
@@ -295,24 +317,38 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 	} else {
 		switch (model->transform) {
 		case SPDE3_TRANSFORM_IDENTITY:
+		{
 			d_i[2] = phi_i[2];
 			d_j[2] = phi_j[2];
+		}
 			break;
+
 		case SPDE3_TRANSFORM_LOG:
+		{
 			d_i[2] = exp(phi_i[2]);
 			d_j[2] = exp(phi_j[2]);
+		}
 			break;
+
 		case SPDE3_TRANSFORM_SHIFTEDLOG:
+		{
 			d_i[2] = 2.0 * exp(phi_i[2]) - 1.0;
 			d_j[2] = 2.0 * exp(phi_j[2]) - 1.0;
+		}
 			break;
+
 		case SPDE3_TRANSFORM_LOGIT:
+		{
 			d_i[2] = (1.0 - exp(phi_i[2])) / (1.0 + exp(phi_i[2]));
 			d_j[2] = (1.0 - exp(phi_j[2])) / (1.0 + exp(phi_j[2]));
+		}
 			break;
+
 		case SPDE3_TRANSFORM_OLDLOGIT:
+		{
 			d_i[2] = cos(M_PI / (1.0 + exp(-phi_i[2])));
 			d_j[2] = cos(M_PI / (1.0 + exp(-phi_j[2])));
+		}
 			break;
 		default:
 			assert(0 == 1);
@@ -331,20 +367,20 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 		GMRFLib_matrix_get_row(row_k, _k, model->B[3]);		\
 		_tmp = row_k[0];					\
 		for (_kk = 1; _kk < model->B[3]->ncol; _kk++) {		\
-			_tmp += row_k[_kk] * model->theta[_kk - 1][GMRFLib_thread_id][0]; \
+			_tmp += row_k[_kk] * model->theta[_kk - 1][thread_id][0]; \
 		}							\
 		_d3 = exp(_tmp);					\
 	}
 
 	if (model->M[3]) {
-		int id;
+		int id = 0;
 
 		GMRFLib_CACHE_SET_ID(id);
 		if (use_store) {
 			// check if we need to recompute storage
 			int recompute = 0;
 			for (k = 0; k < model->ntheta; k++) {
-				if (model->theta[k][GMRFLib_thread_id][0] != model->store[id]->theta[k]) {
+				if (model->theta[k][thread_id][0] != model->store[id]->theta[k]) {
 					recompute = 1;
 					break;
 				}
@@ -354,7 +390,7 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 					fprintf(stderr, "recompute id=%1d\n", id);
 				}
 				for (k = 0; k < model->ntheta; k++) {
-					model->store[id]->theta[k] = model->theta[k][GMRFLib_thread_id][0];
+					model->store[id]->theta[k] = model->theta[k][thread_id][0];
 				}
 				if (!(model->store[id]->d3)) {
 					model->store[id]->d3 = Calloc(model->n3, double);
@@ -403,6 +439,7 @@ double inla_spde3_Qfunction(int i, int j, double *UNUSED(values), void *arg)
 
 	return value;
 }
+
 double *inla_spde3_userfunc3(int number, double *theta, int nhyper, double *covmat, void *arg)
 {
 	/*

@@ -752,7 +752,13 @@
 
     if (n.family > 1) {
         y...orig <- inla.as.list.of.lists(y...orig)
-        ny <- max(sapply(y...orig, function(xx) if (is.list(xx)) max(sapply(xx, length)) else length(xx)))
+        ny <- max(sapply(y...orig,
+                         function(xx) {
+            if (is.list(xx))
+                max(sapply(xx, function(x) if (!is.matrix(x)) length(x) else nrow(x)))
+            else
+                length(xx)
+        }))
         nc <- length(y...orig)
         if (n.family != nc) {
             stop(paste(
@@ -763,10 +769,14 @@
     } else {
         nc <- NULL ## not in use
         if (inherits(y...orig, "inla.surv")) {
+            if (is.null(y...orig$cure)) {
+                y...orig$cure <- NULL
+            }
             class(y...orig) <- NULL
             ## this one is not passed along
             y...orig$.special <- NULL
-            ny <- max(sapply(y...orig, length))
+            ## we have to skip a possible matrix in ...$cure
+            ny <- max(sapply(y...orig, function(x) if (!is.matrix(x)) length(x) else nrow(x)))
         } else if (inherits(y...orig, "inla.mdata")) {
             class(y...orig) <- NULL
             ny <- max(sapply(y...orig, length))
@@ -903,6 +913,7 @@
                 cont.fixed$expand.factor.strategy
             ))
         }
+
         if (inla.require("MatrixModels")) {
             gp$model.matrix <- MatrixModels::model.Matrix(
                                                  new.fix.formula,
@@ -934,7 +945,7 @@
         ## intercept as we might have the intercept in the link-model f.ex. In this case we want
         ## to do the expansion of factors as we have an intercept and then remove it afterwards.
         if (!is.null(cont.fixed$remove.names)) {
-            rm.cols <- which(cont.fixed$remove.names %in% colnames(gp$model.matrix))
+            rm.cols <- which(colnames(gp$model.matrix) %in% cont.fixed$remove.names)
             if (length(rm.cols) > 0) {
                 gp$model.matrix <- gp$model.matrix[, -rm.cols, drop = FALSE]
             }
@@ -1008,13 +1019,25 @@
         cont.compute$control.gcpo$enable <- FALSE
         cont.compute$dic <- cont.compute$cpo <- cont.compute$po <- cont.compute$waic <- FALSE
     }
-
+    for (nm in names(control.compute$control.gcpo)) {
+        if (!(nm %in% names(inla.set.control.compute.default()$control.gcpo))) {
+            stop(paste0("'control.compute$control.gcpo': Unknown argument '", nm, "' is void. Valid ones are: ",
+                        paste0(names(inla.set.control.compute.default()$control.gcpo), collapse=", ")))
+        }
+    }
+    
     ## control inla
     cont.inla <- cont.inla.def <- inla.set.control.inla.default(family = family)
     cont.inla[names(control.inla)] <- control.inla
     ## because we have 'control' within a 'control', we have to process them spesifically
     cont.inla$control.vb <- cont.inla.def$control.vb
     cont.inla$control.vb[names(control.inla$control.vb)] <- control.inla$control.vb
+    for (nm in names(control.inla$control.vb)) {
+        if (!(nm %in% names(inla.set.control.inla.default()$control.vb))) {
+            stop(paste0("'control.inla$control.vb': Unknown argument '", nm, "' is void. Valid ones are: ",
+                        paste0(names(inla.set.control.inla.default()$control.vb), collapse=", ")))
+        }
+    }
 
     ## control predictor section
     cont.predictor <- inla.set.control.predictor.default()
@@ -1849,9 +1872,10 @@
                         location[[r]] <- 1L:length(levels(xx))
                         xx <- as.numeric(xx)
                     } else if (is.character(xx)) {
-                        gp$random.spec[[r]]$id.names <- levels(as.factor(xx))
-                        location[[r]] <- 1L:length(levels(as.factor(xx)))
-                        xx <- as.numeric(sapply(xx, function(xx.i, id.names) which(xx.i == id.names), id.names = gp$random.spec[[r]]$id.names))
+                        xx.factor <- as.factor(xx)
+                        gp$random.spec[[r]]$id.names <- levels(xx.factor)
+                        location[[r]] <- 1L:length(levels(xx.factor))
+                        xx <- as.numeric(xx.factor)
                     } else if (is.numeric(xx)) {
                         gp$random.spec[[r]]$id.names <- NULL
                         location[[r]] <- sort(unique(xx))
@@ -2291,7 +2315,7 @@
     file.env <- paste0(inla.dir, "/environment")
     cat(file = file.env)
     for (i in seq_along(env.list)) {
-        cat(names(env.list[i]), "=\"", env.list[i], "\"\n", sep = "", file = file.env, append = TRUE)
+        cat("export ", names(env.list[i]), "='", env.list[i], "'\n", sep = "", file = file.env, append = TRUE)
     }
 
     timeout <- inla.getOption("inla.timeout")
@@ -2371,7 +2395,6 @@
         }
 
         my.time.used[3] <- Sys.time()
-
         if (echoc == 0L) {
             if (!submit) {
                 ret <- try(inla.collect.results(results.dir,
@@ -2584,6 +2607,10 @@
 ## the call will be changed to the same as 'inla' later
 `inla.core.safe` <- function(...)
 {
+    err.due.to.timeout <- function(r) {
+        return (inherits(r, "try-error") && length(grep("seconds due to timeout", r[1])) > 0)
+    }
+
     output <- function(msg) {
         cat("\n *** inla.core.safe: ", msg, "\n")
     }
@@ -2636,9 +2663,13 @@
     cmin <- 1
     ntry <- 0
     max.try <- 2
-    r <- run.inla()
 
-    while (inherits(r,"try-error")) {
+    r <- run.inla()
+    if (err.due.to.timeout(r)) {
+        return (r)
+    }
+    
+    while (inherits(r, "try-error")) {
         ##
         if (ntry == max.try) {
             stop("*** Fail to get good enough initial values. Maybe it is due to something else.")
@@ -2682,13 +2713,16 @@
         lincomb <- NULL
         
         r <- run.inla()
+        if (err.due.to.timeout(r)) {
+            return (r)
+        }
 
         control.inla <- control.inla.save
         control.compute <- control.compute.save
         control.predictor <- control.predictor.save
         lincomb <- lincomb.save
 
-        if (!inherits(r,"try-error")) {
+        if (!inherits(r, "try-error")) {
             r$.args$control.inla <- control.inla.save
             r$.args$control.compute <- control.compute.save
             r$.args$control.predictor <- control.predictor.save
@@ -2704,11 +2738,14 @@
         output("rerun with improved initial values")
         r <- inla.rerun(r)
     } else if (nrow(r$misc$cov.intern) > 1 &&
-               sum(abs(r$misc$cov.intern[upper.tri(r$misc$cov.intern)])) == 0) {
+               sum(abs(r$misc$cov.intern[upper.tri(r$misc$cov.intern)])) == 0 &&
+               !all(diag(r$misc$cov.intern) == 1.0)) {
         output("rerun to try to solve negative eigenvalue(s) in the Hessian")
         r <- inla.rerun(r)
     }
-    r$.args$safe <- TRUE
+    if (!is.null(r$.args)) {
+        r$.args$safe <- TRUE
+    }
 
     return (r)
 }

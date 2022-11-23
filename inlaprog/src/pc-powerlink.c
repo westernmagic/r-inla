@@ -34,7 +34,10 @@
 #include "GMRFLib/GMRFLib.h"
 #include "GMRFLib/GMRFLibP.h"
 
-static const char UNUSED(GitID[]) = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic pop
 
 #include "inla.h"
 #include "pc-powerlink.h"
@@ -55,13 +58,14 @@ double map_inv_powerlink_core(double arg, map_arg_tp typ, void *param, double *i
 #define Probit_Pinv(_prob, _power) (-log1p(exp(-log(_prob)/(_power))-2.0))
 #define Probit_P(_x, _power) exp(-(_power) * log1p(exp(-(_x))))
 
-	int id;
+	int id = -1;
 	GMRFLib_CACHE_SET_ID(id);
 
 	static inla_powerlink_table_tp **table = NULL;
 	static int first = 1, x_len = 256;
 
-	int i, j, debug = 0;
+	int i, j;
+	const int debug = 0;
 	double **par, intercept_intern, power, power_intern, sd;
 	double eps = GMRFLib_eps(0.5);
 
@@ -75,7 +79,7 @@ double map_inv_powerlink_core(double arg, map_arg_tp typ, void *param, double *i
 	}
 
 	if (first) {
-#pragma omp critical
+#pragma omp critical (Name_9d79a06b70461ee05e66db9259a55b502b777c69)
 		if (first) {
 			if (1) {
 				fprintf(stderr, "map_inv_powerlink: build table with power=%f\n", power);
@@ -121,7 +125,7 @@ double map_inv_powerlink_core(double arg, map_arg_tp typ, void *param, double *i
 		int x_len_extra = sizeof(pp) / sizeof(double);
 		len = x_len + x_len_extra;
 
-		Calloc_init(2 * len);
+		Calloc_init(2 * len, 2);
 		x = Calloc_get(len);
 		cdf = Calloc_get(len);
 
@@ -211,21 +215,26 @@ double map_inv_powerlink_core(double arg, map_arg_tp typ, void *param, double *i
 
 	switch (typ) {
 	case MAP_FORWARD:
+	{
 		/*
 		 * extern = func(local) 
 		 */
 		arg = TRUNCATE(intercept + arg, table[id]->xmin, table[id]->xmax);
 		p = GMRFLib_spline_eval(arg, table[id]->cdf);
 		return iMAP(p);
+	}
 
 	case MAP_BACKWARD:
+	{
 		/*
 		 * local = func(extern) 
 		 */
 		arg = TRUNCATE(arg, table[id]->pmin, table[id]->pmax);
 		return GMRFLib_spline_eval(MAP(arg), table[id]->icdf) - intercept;
+	}
 
 	case MAP_DFORWARD:
+	{
 		/*
 		 * d_extern / d_local 
 		 */
@@ -233,12 +242,15 @@ double map_inv_powerlink_core(double arg, map_arg_tp typ, void *param, double *i
 		p = GMRFLib_spline_eval(arg, table[id]->cdf);
 		pp = GMRFLib_spline_eval_deriv(arg, table[id]->cdf);
 		return diMAP(p) * pp;
+	}
 
 	case MAP_INCREASING:
+	{
 		/*
 		 * return 1.0 if montone increasing and 0.0 otherwise
 		 */
 		return 1.0;
+	}
 
 	default:
 		abort();

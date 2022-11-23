@@ -13,10 +13,10 @@ bibliography: jmarginal.bib
 ```{r setup, include=FALSE}
 set.seed(1234)
 library(INLA)
-if (file.exists("myinit.R")) source("myinit.R")
 inla.setOption(num.threads="1:1")
 inla.setOption(smtp="taucs")
 inla.setOption(inla.mode="classic")
+if (file.exists("myinit.R")) source("myinit.R")
 library(ggplot2)
 library(sn)
 library(knitr)
@@ -61,6 +61,23 @@ restricted to a joint approximation of a modest dimension.
 The key specification is using an argument `selection` in the
 `inla()`-call, which defines the subset, and then the joint marginal
 approximation is made available in `result$selection`.
+
+Note that when using the classic-mode, like
+```{r eval=F}
+inla.setOption(inla.mode="classic")
+```
+then linear predictors can also be used. With
+```{r eval=F}
+inla.setOption(inla.mode="experimental")
+```
+then the linear predictor can not be used as it is not explicitely
+part of the latent model. 
+
+This vignette is created with
+```{r}
+inla.getOption('inla.mode')
+```
+
 
 ## Theory reference
 

@@ -273,9 +273,7 @@ int GMRFLib_design_ccd(GMRFLib_design_tp ** design, int nfactors)
 		if (!ISZERO(scale)) {			       /* yes, the origo is within the design points! */
 			scale = 1.0 / sqrt(scale);
 		}
-		for (k = 0; k < nfactors; k++) {
-			(*design)->experiment[j][k] *= scale;
-		}
+		GMRFLib_dscale(nfactors, scale, (*design)->experiment[j]);
 	}
 
 	return GMRFLib_SUCCESS;
@@ -367,7 +365,8 @@ int GMRFLib_design_prune(GMRFLib_design_tp * design, double prob)
 		return GMRFLib_SUCCESS;
 	}
 
-	int i, debug = 0, *idx = NULL;
+	const int debug = 0;
+	int i, *idx = NULL;
 	double *w = NULL, sumw = 0.0;
 
 	w = Calloc(design->nexperiments, double);

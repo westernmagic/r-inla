@@ -26,6 +26,7 @@ find_package (ZLIB REQUIRED)
 find_package (OpenSSL REQUIRED COMPONENTS Crypto)
 find_package (Pardiso)
 find_package (LibR)
+find_package (X11)
 
 if (LIBR_CORE_LIBRARY)
 	add_library (R::R INTERFACE IMPORTED)

@@ -45,7 +45,10 @@
 #include "GMRFLib/GMRFLibP.h"
 #include "tweedie.h"
 
-static const char UNUSED(GitID[]) = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-const-variable"
+static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
+#pragma GCC diagnostic pop
 
 // the 'dtweedie'-code is inspired from tweedie.c in the (GPL'ed) cplm_0.7-9.tar.gz package of Wayne Zhang
 // <actuary_zhang@hotmail.com>, but got largly rewritten to incorporate caching and interpolation and other optimization
@@ -109,7 +112,7 @@ void dtweedie(int n, double y, double *mu, double phi, double p, double *ldens)
 	double a = -p2 / p1, a1 = 1.0 / p1;
 	double cc, w, sum_ww = 0.0, ww_max = 0.0, lsum_ww, ly;
 	double jmax, logz, logz_stripped;
-	int id, use_interpolation = 1, nterms, k, i, j, one = 1, k_low = -1, reuse = 0, verbose = 0, show_stat = 0;
+	int id = -1, use_interpolation = 1, nterms, k, i, j, one = 1, k_low = -1, reuse = 0, verbose = 0, show_stat = 0;
 
 	GMRFLib_CACHE_SET_ID(id);
 	dtweedie_cache_tp *cache_ptr = cache[id];
@@ -246,8 +249,8 @@ void dtweedie(int n, double y, double *mu, double phi, double p, double *ldens)
 	}
 	double term_removed = -a * ly - a1 * log(phi);	       // the terms we have removed from 'logz'
 	double lim = -20.72326584;			       // log(1.0e-9)
-	int idx_max = -1;
 
+	int idx_max = 0;
 	sum_ww = 0.0;
 	ww_max = cache_ptr->wwork[0] + one * term_removed;
 	for (k = 0; k < nterms; k++) {
@@ -287,7 +290,7 @@ void dtweedie(int n, double y, double *mu, double phi, double p, double *ldens)
 		count++;
 
 		if (show_stat) {
-#pragma omp critical
+#pragma omp critical (Name_a5c97756f6b00566ba28b5dce73bc4447f991240)
 			printf("\tdtweedie: ntimes=%zu rebuild=%.3f%%  adjust=%.3f%% reuse=%.3f%% mean.nterms=%1d\n",
 			       ntot,
 			       100.0 * (double) cache_count[0] / (double) ntot,

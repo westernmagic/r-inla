@@ -456,7 +456,8 @@ char *dictionary_replace_variables(dictionary * d, char *str)
 	}
 
 	char *first = NULL, *last = NULL, *newstr = NULL, *envvar = NULL, *var = NULL, *newvar = NULL;
-	int c, debug = 0;
+	int c;
+	const int debug = 0;
 	size_t len;
 	int i;
 
@@ -481,6 +482,7 @@ char *dictionary_replace_variables(dictionary * d, char *str)
 	}
 
 	var = (char *) calloc(len + 1, sizeof(char));
+	assert(var);
 	var[0] = INIPARSER_SEP;
 	strncpy(var + 1, first + 1, len);
 	var[len] = '\0';

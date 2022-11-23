@@ -53,7 +53,11 @@ add_library (
 	smtp-pardiso.c
 	interpol.c
 	pre-opt.c
+	cores.c
+	dot.c
+	idxval.c
 )
+target_compile_options (gmrf PUBLIC -U NDEBUG)
 target_include_directories (gmrf PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries (
 	gmrf

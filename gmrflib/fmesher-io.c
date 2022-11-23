@@ -77,6 +77,7 @@ GMRFLib_matrix_tp *GMRFLib_read_fmesher_file(const char *filename, long int offs
 
 #define ERROR(msg)							\
 	{								\
+		if (fp) fclose(fp);					\
 		fprintf(stderr, "\n\n%s:%1d: *** ERROR *** \n\t%s\n\n", __FILE__,  __LINE__,  msg); \
 		GMRFLib_ASSERT_RETVAL(1==0,  GMRFLib_EMISC, (GMRFLib_matrix_tp *)NULL);	\
 		exit(EXIT_FAILURE);					\
@@ -92,7 +93,7 @@ GMRFLib_matrix_tp *GMRFLib_read_fmesher_file(const char *filename, long int offs
 		nread = fread((void *)ptr, sizeof(type), (size_t) n, (FILE *) fp); \
 		if (nread != (size_t) n) {				\
 			char *m;					\
-			GMRFLib_sprintf(&m, "Fail to read [%1u] elems of size [%1u] from file [%s], at position %ld\n", \
+			GMRFLib_sprintf(&m, "Failed to read [%1u] elems of size [%1u] from file [%s], at position %ld\n", \
 					n, sizeof(type), filename, position); \
 			ERROR(m);					\
 		}							\
@@ -102,7 +103,8 @@ GMRFLib_matrix_tp *GMRFLib_read_fmesher_file(const char *filename, long int offs
 	char *msg = NULL;
 	int *header = NULL;
 	int len_header = 0;
-	int verbose = 0, debug = 0, i, j, k;
+	int verbose = 0, i, j, k;
+	const int debug = 0;
 	GMRFLib_matrix_tp *M = NULL;
 
 	if (debug) {
@@ -114,7 +116,7 @@ GMRFLib_matrix_tp *GMRFLib_read_fmesher_file(const char *filename, long int offs
 		fseek(fp, offset, whence);
 	}
 	if (!fp) {
-		GMRFLib_sprintf(&msg, "Fail to open file [%s]", filename);
+		GMRFLib_sprintf(&msg, "Failed to open file [%s]", filename);
 		ERROR(msg);
 	}
 	if (verbose) {
@@ -386,6 +388,7 @@ int GMRFLib_write_fmesher_file(GMRFLib_matrix_tp * M, const char *filename, long
 
 #define ERROR(msg)							\
 	{								\
+		if (fp) fclose(fp);					\
 		fprintf(stderr, "\n\n%s:%1d: *** ERROR *** \n\t%s\n\n", __FILE__,  __LINE__,  msg); \
 		GMRFLib_ASSERT_RETVAL(1==0,  GMRFLib_EMISC, !GMRFLib_SUCCESS);	\
 		exit(EXIT_FAILURE);					\
@@ -399,7 +402,7 @@ int GMRFLib_write_fmesher_file(GMRFLib_matrix_tp * M, const char *filename, long
 		nwrite = fwrite((const void *)ptr, sizeof(type), (size_t) n, (FILE *) fp); \
 		if (nwrite != (size_t) n) {				\
 			char *m;					\
-			GMRFLib_sprintf(&m, "Fail to write [%1u] elems of size [%1u] to file [%s], at position %ld\n", \
+			GMRFLib_sprintf(&m, "Failed to write [%1u] elems of size [%1u] to file [%s], at position %ld\n", \
 					n, sizeof(type), filename, ftell(fp)); \
 			ERROR(m);					\
 		}							\
@@ -424,7 +427,7 @@ int GMRFLib_write_fmesher_file(GMRFLib_matrix_tp * M, const char *filename, long
 		fp = fopen(filename, "wb");
 	}
 	if (!fp) {
-		GMRFLib_sprintf(&msg, "Fail to open file [%s]", filename);
+		GMRFLib_sprintf(&msg, "Failed to open file [%s]", filename);
 		ERROR(msg);
 	}
 	if (verbose) {
@@ -695,7 +698,7 @@ int GMRFLib_matrix_get_row(double *values, int i, GMRFLib_matrix_tp * M)
 	return GMRFLib_SUCCESS;
 }
 
-int GMRFLib_matrix_get_row_idxval(GMRFLib_idxval_tp ** row, int i, GMRFLib_matrix_tp * M)
+int GMRFLib_matrix_get_row_idxval(GMRFLib_idxval_tp ** row, int i, GMRFLib_matrix_tp * M, int sort)
 {
 	/*
 	 * store values in 'row', must be NULL on entry. 
@@ -711,7 +714,15 @@ int GMRFLib_matrix_get_row_idxval(GMRFLib_idxval_tp ** row, int i, GMRFLib_matri
 			for (ptr = NULL; (ptr = map_id_nextptr(M->htable[i], ptr)) != NULL;) {
 				GMRFLib_idxval_add(row, ptr->key, ptr->value);
 			}
-			GMRFLib_idxval_sort(*row);
+			if (sort) {
+				int is_sorted = 1;
+				for (int i = 1; i < (*row)->n && is_sorted; i++) {
+					is_sorted = is_sorted && ((*row)->idx[i] >= (*row)->idx[i - 1]);
+				}
+				if (!is_sorted) {
+					GMRFLib_idxval_sort(*row);
+				}
+			}
 		}
 	} else {
 		FIXME("NOT IMPLEMENTED");

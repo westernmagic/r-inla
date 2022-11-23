@@ -33,6 +33,7 @@
   \brief Functions for input and output
 */
 
+#include <stddef.h>
 #include <stdarg.h>
 #include <string.h>
 #include <stdio.h>
@@ -40,6 +41,7 @@
 #include <malloc.h>
 #endif
 #include <stdlib.h>
+
 #include "GMRFLib/GMRFLib.h"
 #include "GMRFLib/GMRFLibP.h"
 
@@ -48,57 +50,14 @@
 #endif
 static const char GitID[] = "file: " __FILE__ "  " GITCOMMIT;
 
-int GMRFLib_sprintf(char **ptr, const char *fmt, ...)
-{
-	/*
-	 * parts of this code is copied from the manual page of snprintf. 
-	 */
-
-	int n, size = 128 + 1;
-	char *p;
-	va_list ap;
-
-	GMRFLib_ASSERT(ptr, GMRFLib_EINVARG);
-	GMRFLib_ASSERT(fmt, GMRFLib_EINVARG);
-
-	p = Calloc(size, char);
-
-	while (1) {
-		/*
-		 * Try to print in the allocated space. 
-		 */
-		va_start(ap, fmt);
-		n = vsnprintf(p, (unsigned int) size, fmt, ap);
-		va_end(ap);
-
-		/*
-		 * if that worked, return the string, 
-		 */
-		if (n > -1 && n < size) {
-			*ptr = p;
-			return GMRFLib_SUCCESS;
-		}
-
-		/*
-		 * ...else try again with more space 
-		 */
-		if (n > -1) {
-			size = n + 1;
-		} else {
-			size *= 2;
-		}
-		p = Realloc(p, size, char);
-	}
-
-	return GMRFLib_SUCCESS;
-}
-
 int GMRFLib_io_find_file_in_path(char **ptr, const char *filename, int must_find)
 {
 	/*
 	 * find readable file looking for files in GMRFLib_path. if must_find, then error if the file is not found (unless
 	 * filename == NULL). this function return a malloc'ed string int *ptr with the filename (path included) to the file. 
 	 */
+
+	const char *GMRFLib_path = "GMRFLib_path DOES NOT WORK with g++, fix later if needed...";
 
 	int found = 0;
 	char *path = NULL, *p = NULL, *pp = NULL, *fnm = NULL, *strtok_ptr = NULL;
@@ -194,14 +153,21 @@ int GMRFLib_io_error(GMRFLib_io_tp * io, int error)
 
 	switch (error) {
 	case GMRFLib_IO_ERR_OPEN:
+	{
 		GMRFLib_EWRAP0(GMRFLib_sprintf(&msg, "Fail to open file[%s] with mode[%s]", io->filename, io->mode));
 		ecode = GMRFLib_EOPENFILE;
+	}
 		break;
+
 	case GMRFLib_IO_ERR_NOLINE:
+	{
 		GMRFLib_EWRAP0(GMRFLib_sprintf(&msg, "Fail to read line[%1d] in file[%s]", io->lines_read + 1, io->filename));
 		ecode = GMRFLib_EREADFILE;
+	}
 		break;
+
 	case GMRFLib_IO_ERR_READLINE:
+	{
 		if (io->tokens_read) {
 			GMRFLib_EWRAP0(GMRFLib_sprintf
 				       (&msg, "Fail to read from or get, line[%1d] token[%1d] in file[%s]", io->lines_read, io->tokens_read,
@@ -210,15 +176,22 @@ int GMRFLib_io_error(GMRFLib_io_tp * io, int error)
 			GMRFLib_EWRAP0(GMRFLib_sprintf(&msg, "Fail to read from or get, line[%1d] in file[%s]", io->lines_read, io->filename));
 		}
 		ecode = GMRFLib_EREADFILE;
+	}
 		break;
+
 	case GMRFLib_IO_ERR_READBYTES:
+	{
 		GMRFLib_EWRAP0(GMRFLib_sprintf(&msg, "Fail to read more after [%1d] bytes are read in file[%s]", io->bytes_read, io->filename));
 		ecode = GMRFLib_EREADFILE;
+	}
 		break;
+
 	case GMRFLib_IO_ERR_WRITEBYTES:
+	{
 		GMRFLib_EWRAP0(GMRFLib_sprintf
 			       (&msg, "Fail to write more after [%1d] bytes are written to file[%s]", io->bytes_written, io->filename));
 		ecode = GMRFLib_EWRITE;
+	}
 		break;
 
 	default:
@@ -330,11 +303,21 @@ int GMRFLib_io_nextline(char **ptr, GMRFLib_io_tp * io)
 int GMRFLib_io_next_token(char **ptr, GMRFLib_io_tp * io)
 {
 	char *tok = NULL;
-	static char *line = NULL;
-#pragma omp threadprivate(line)
+	static char **lline = NULL;
+
+	if (!lline) {
+#pragma omp critical (Name_3b7615ac7634fdd9cdf10e63dde5835b04b9da62)
+		{
+			if (!lline) {
+				lline = Calloc(GMRFLib_CACHE_LEN, char *);
+			}
+		}
+	}
+	int idx = 0;
+	GMRFLib_CACHE_SET_ID(idx);
 
 	if (io == NULL) {				       /* special: reset strtok */
-		Free(line);
+		Free(lline[idx]);
 		return GMRFLib_SUCCESS;
 	}
 
@@ -354,11 +337,11 @@ int GMRFLib_io_next_token(char **ptr, GMRFLib_io_tp * io)
 	/*
 	 * no token. read next line and extract the first token 
 	 */
-	Free(line);
+	Free(lline[idx]);
 
-	GMRFLib_EWRAP0(GMRFLib_io_nextline(&line, io));
-	if (line) {
-		tok = GMRFLib_strtok_r(line, GMRFLib_IO_SEP, &(io->strtok_ptr));
+	GMRFLib_io_nextline(&(lline[idx]), io);
+	if (lline[idx]) {
+		tok = GMRFLib_strtok_r(lline[idx], GMRFLib_IO_SEP, &(io->strtok_ptr));
 		io->tokens_read++;
 		*ptr = tok;
 		return GMRFLib_SUCCESS;

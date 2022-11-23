@@ -46,15 +46,29 @@
     ## flag it TRUE. (ie no double triplets etc).
     ## if na.rm then replace NA's with zeros.
     ## if zeros.rm then remove zeros.
+    
+    if (!inherits(A, "Matrix")) {
+        A <- as(A, "Matrix")
+    }
 
     if (unique) {
-        ## convert through the 'dgCMatrix'-class to make it unique;
-        A <- as(as(as(A, "CsparseMatrix"), "dgCMatrix"), "dgTMatrix")
+        ## Convert via double, general, Tsparse Matrix classes, following
+        ## the recommendations of the Matrix package developer vignette.
+        ## Convert to 'CsparseMatrix'-class first to ensure the T-representation
+        ## is unique, i.e. has no duplicate (i,j) pairs.
+        A <- as(as(as(as(A,
+                         "dMatrix"),
+                      "generalMatrix"),
+                   "CsparseMatrix"),
+                "TsparseMatrix")
     } else {
         if (!is(A, "dgTMatrix")) {
-            ## Convert via virtual class TsparseMatrix; this allows more general conversions
-            ## than direct conversion.
-            A <- as(as(A, "TsparseMatrix"), "dgTMatrix")
+            ## Convert via double, general, Tsparse Matrix classes, following
+            ## the recommendations of the Matrix package developer vignette.
+            A <- as(as(as(A,
+                          "dMatrix"),
+                       "generalMatrix"),
+                    "TsparseMatrix")
         }
     }
 
