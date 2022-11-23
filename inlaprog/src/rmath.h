@@ -42,7 +42,9 @@
 #endif
 
 __BEGIN_DECLS
+#if defined(INLA_WITH_RMATH)
 #define MATHLIB_STANDALONE
+#endif
 #define MATHLIB_FUN(_fun) _fun
 #if defined(ISNAN)
 #undef ISNAN
